@@ -1,0 +1,12 @@
+# Global defaults. Per-month and per-item overrides live in each month's timeline.json.
+output:
+  resolution: [1920, 1080]
+  fps: 30
+photo:
+  min_seconds: 2.0
+  max_seconds: 5.0
+video:
+  max_seconds: 8.0      # clips are trimmed to this unless overridden
+  min_seconds: 1.5
+music:
+  mode: fit             # fit | loop_cut | multi_song | shared_song

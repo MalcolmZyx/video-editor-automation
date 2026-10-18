@@ -1,0 +1,8 @@
+pyyaml
+pillow
+imagehash
+numpy
+
+[dev]
+pytest
+ruff

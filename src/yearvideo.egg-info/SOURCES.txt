@@ -1,0 +1,9 @@
+README.md
+pyproject.toml
+src/yearvideo/__init__.py
+src/yearvideo.egg-info/PKG-INFO
+src/yearvideo.egg-info/SOURCES.txt
+src/yearvideo.egg-info/dependency_links.txt
+src/yearvideo.egg-info/requires.txt
+src/yearvideo.egg-info/top_level.txt
+tests/test_smoke.py
