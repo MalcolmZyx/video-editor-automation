@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from .fakedata import generate_month
 from .pipeline import (
     build_timeline,
     load_config,
@@ -32,6 +33,11 @@ def main(argv: list[str] | None = None) -> None:
     y = sub.add_parser("year", help="plan/render every month folder and join into year.mp4")
     y.add_argument("year_dir", type=Path)
     y.add_argument("-o", "--out", type=Path)
+    m = sub.add_parser("demo", help="make fake photos/videos/songs, plan them, and open the review UI")
+    m.add_argument("dir", type=Path, nargs="?", default=Path("output/demo"))
+    m.add_argument("--months", type=int, default=3)
+    m.add_argument("--no-review", action="store_true")
+    m.add_argument("--port", type=int, default=8765)
     d = sub.add_parser("render", help="render timeline.json to mp4")
     d.add_argument("month_dir", type=Path)
     d.add_argument("-o", "--out", type=Path)
@@ -40,6 +46,19 @@ def main(argv: list[str] | None = None) -> None:
     if a.cmd == "year":
         print(f"rendered {build_year(a.year_dir, a.out)}")
         return
+    if a.cmd == "demo":
+        names = ["01-January", "02-February", "03-March", "04-April", "05-May", "06-June"]
+        cfg = load_config()
+        for n in range(a.months):
+            month = a.dir / names[n % len(names)]
+            generate_month(month, n_photos=14, n_dupes=3, n_videos=3, seed=n)
+            save_timeline(build_timeline(month, cfg), month / "timeline.json")
+        print(f"fake year created in {a.dir}")
+        print(f"  render it all:  yearvideo year {a.dir}")
+        print(f"  review a month: yearvideo review {a.dir / names[0]}")
+        if a.no_review:
+            return
+        a.cmd, a.month_dir = "review", a.dir / names[0]
     if a.cmd == "review":
         import webbrowser
 

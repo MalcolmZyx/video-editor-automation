@@ -20,6 +20,8 @@ from .music import analyze_track
 from .planner import Item, Limits, Track, plan_month
 from .titlecard import month_title
 
+DEFAULT_FADE = {"video_in": 0.5, "video_out": 0.5, "color": "black", "music_in": 0.0, "music_out": 3.0}
+DEFAULT_VIDEO_SOUND = {"keep_default": False, "duck": 0.25, "ramp": 0.3}
 AUDIO_EXT = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac"}
 DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "config" / "default.yaml"
 
@@ -52,6 +54,26 @@ def _analyse_songs(month_dir: Path, existing: list[dict]) -> list[dict]:
     return [t for t in existing if t["file"] in present] + new
 
 
+def _new_item(m, month_dir: Path, reason: str | None) -> dict:
+    return {
+        "id": m.id,
+        "kind": m.kind,
+        "taken": m.taken,
+        "source_duration": m.duration,
+        "keep": reason is None,
+        "drop_reason": reason,
+        "duration_override": None,
+        "src_in": 0.0,  # videos: where in the source the clip starts
+        "src_in_auto": m.kind == "video",  # False once the user sets src_in by hand
+        "scores": score_video(month_dir / m.id) if m.kind == "video" else None,
+        "has_audio": m.has_audio,
+        "keep_audio": None,  # videos: None = follow video_sound.keep_default, True/False = force
+        "audio_volume": 1.0,  # videos: loudness of the clip's own sound
+        "fade_in": None,  # seconds; None = automatic (month start only)
+        "fade_out": None,  # seconds; None = automatic (month end only)
+    }
+
+
 def build_timeline(month_dir: Path, cfg: dict, mode: str | None = None) -> dict:
     catalog = scan_month(month_dir)
     dd = dedupe_photos(month_dir, catalog)
@@ -70,26 +92,13 @@ def build_timeline(month_dir: Path, cfg: dict, mode: str | None = None) -> dict:
             }
         )
     for m in catalog:
-        dropped = dd.dropped.get(m.id)
-        items.append(
-            {
-                "id": m.id,
-                "kind": m.kind,
-                "taken": m.taken,
-                "source_duration": m.duration,
-                "keep": dropped is None,
-                "drop_reason": dropped,
-                "duration_override": None,
-                "src_in": 0.0,  # videos: where in the source the clip starts
-                "src_in_auto": m.kind == "video",  # False once the user sets src_in by hand
-                "scores": score_video(month_dir / m.id) if m.kind == "video" else None,
-            }
-        )
+        items.append(_new_item(m, month_dir, dd.dropped.get(m.id)))
     tracks = _analyse_songs(month_dir, [])
     tl = {
         "month": month_dir.name,
         "output": cfg["output"],
-        "fade_seconds": cfg.get("fade_seconds", 0.0),
+        "fade": dict(cfg["fade"]),
+        "video_sound": dict(cfg["video_sound"]),
         "limits": asdict(limits_from(cfg)),
         "music": {"mode": mode or cfg["music"]["mode"], "section": 0, "offset": 0.0},
         "tracks": tracks,
@@ -101,6 +110,8 @@ def build_timeline(month_dir: Path, cfg: dict, mode: str | None = None) -> dict:
 
 def replan(tl: dict) -> dict:
     """Recompute durations/audio from the current keep flags, overrides, limits and music mode."""
+    tl.setdefault("fade", dict(DEFAULT_FADE))
+    tl.setdefault("video_sound", dict(DEFAULT_VIDEO_SOUND))
     items = [
         Item(i["id"], i["kind"], i["source_duration"], i["duration_override"], i["keep"])
         for i in tl["items"]
@@ -147,13 +158,7 @@ def refresh_timeline(tl: dict, month_dir: Path) -> dict:
     for m in sorted(catalog, key=lambda m: (m.taken, m.id)):
         if m.id in known:
             continue
-        reason = dd.dropped.get(m.id)
-        item = {
-            "id": m.id, "kind": m.kind, "taken": m.taken, "source_duration": m.duration,
-            "keep": reason is None, "drop_reason": reason, "duration_override": None,
-            "src_in": 0.0, "src_in_auto": m.kind == "video",
-            "scores": score_video(month_dir / m.id) if m.kind == "video" else None,
-        }  # fmt: skip
+        item = _new_item(m, month_dir, dd.dropped.get(m.id))
         pos = next(
             (n for n, i in enumerate(tl["items"]) if i.get("taken") and i["taken"] > m.taken),
             len(tl["items"]),

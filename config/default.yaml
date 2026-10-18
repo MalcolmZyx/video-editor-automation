@@ -11,6 +11,15 @@ video:
 title:
   enabled: true
   seconds: 2.5
-fade_seconds: 0.5     # fade in/out at each month's start/end
+fade:                   # month start/end fades (per-item fades can be set in the review UI)
+  video_in: 0.5         # seconds, picture fades up from `color` at the start of the month
+  video_out: 0.5        # seconds, picture fades to `color` at the end of the month
+  color: black          # any ffmpeg colour name, e.g. black, white
+  music_in: 0.0         # seconds of music fade-in at the start of the month (0 = none)
+  music_out: 3.0        # seconds of music fade-out when a song is cut early (loop_cut etc.)
+video_sound:
+  keep_default: false   # keep the original sound of video clips unless a clip says otherwise
+  duck: 0.25            # music loudness (0-1) while a clip's own sound plays
+  ramp: 0.3             # seconds the music takes to dip and recover
 music:
   mode: fit             # fit | loop_cut | multi_song | shared_song

@@ -43,6 +43,18 @@
   <span id="rstatus" class="badge"></span>
 </header>
 <main>
+  <details id="settings"><summary>Month settings: fades &amp; video sound</summary>
+    <div class="grid" style="margin-top:8px; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr))">
+      <label>Picture fade in (s) <input data-s="fade.video_in" type="number" step="0.1" min="0"></label>
+      <label>Picture fade out (s) <input data-s="fade.video_out" type="number" step="0.1" min="0"></label>
+      <label>Fade colour <input data-s="fade.color" type="text" style="width:90px"></label>
+      <label>Music fade in (s) <input data-s="fade.music_in" type="number" step="0.1" min="0"></label>
+      <label>Music fade out when cut early (s) <input data-s="fade.music_out" type="number" step="0.1" min="0"></label>
+      <label><input data-s="video_sound.keep_default" type="checkbox"> Keep video sound by default</label>
+      <label>Music level under video sound (0–1) <input data-s="video_sound.duck" type="number" step="0.05" min="0" max="1"></label>
+      <label>Music dip/recover time (s) <input data-s="video_sound.ramp" type="number" step="0.1" min="0.05"></label>
+    </div>
+  </details>
   <div id="kept" class="grid"></div>
   <h2 id="dh">Dropped</h2>
   <div id="dropped" class="grid"></div>
@@ -78,6 +90,13 @@ function card(it, idx) {
         value="${it.duration_override ?? ''}" data-f="ov"></div>
       ${it.kind === 'video' ? `<div class="row"><span>start at</span><input type="number" step="0.5" min="0"
         value="${(it.src_in || 0).toFixed(1)}" data-f="in"></div>` : ''}
+      ${it.kind === 'video' && it.has_audio ? `<div class="row"><span>sound</span>
+        <select data-f="snd"><option value="">default</option><option value="1" ${it.keep_audio === true ? 'selected' : ''}>keep</option>
+        <option value="0" ${it.keep_audio === false ? 'selected' : ''}>mute</option></select>
+        <input type="number" step="0.1" min="0" style="width:60px" title="clip volume" value="${it.audio_volume ?? 1}" data-f="vol"></div>` : ''}
+      <div class="row"><span>fade in/out</span><span><input type="number" step="0.1" min="0" style="width:68px"
+        placeholder="auto" value="${it.fade_in ?? ''}" data-f="fin"> <input type="number" step="0.1" min="0"
+        style="width:68px" placeholder="auto" value="${it.fade_out ?? ''}" data-f="fout"></span></div>
       ${it.drop_reason ? `<div class="name bad">${it.drop_reason}</div>` : ''}
       ${sim >= 0 ? `<div class="name">similar group ${sim + 1}</div>` : ''}
       ${it.keep ? `<div class="row"><button data-f="up">▲</button><button data-f="down">▼</button></div>` : ''}</div>`;
@@ -90,6 +109,10 @@ function card(it, idx) {
       else if (f === 'ov') it.duration_override = el.value === '' ? null : parseFloat(el.value);
       else if (f === 'in') { it.src_in = parseFloat(el.value) || 0; it.src_in_auto = false; }
       else if (f === 'text') it.text = el.value;
+      else if (f === 'snd') it.keep_audio = el.value === '' ? null : el.value === '1';
+      else if (f === 'vol') it.audio_volume = el.value === '' ? 1 : parseFloat(el.value);
+      else if (f === 'fin') it.fade_in = el.value === '' ? null : parseFloat(el.value);
+      else if (f === 'fout') it.fade_out = el.value === '' ? null : parseFloat(el.value);
       else if (f === 'up' || f === 'down') {
         if (e.type !== 'click') return;
         const j = idx + (f === 'up' ? -1 : 1);
@@ -104,6 +127,7 @@ function card(it, idx) {
 
 function draw() {
   $('title').textContent = tl.month;
+  fillSettings();
   $('mode').value = tl.music.mode; $('section').value = tl.music.section;
   const s = $('status');
   s.className = tl.fits ? 'ok' : 'bad';
@@ -114,7 +138,21 @@ function draw() {
   $('dropped').replaceChildren(...dropped);
 }
 
-$('mode').onchange = () => { tl.music.mode = $('mode').value; saveSoon(); };
+document.querySelectorAll('[data-s]').forEach(el => {
+  el.onchange = () => {
+    const [grp, key] = el.dataset.s.split('.');
+    tl[grp][key] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? parseFloat(el.value) : el.value;
+    saveSoon();
+  };
+});
+function fillSettings() {
+  document.querySelectorAll('[data-s]').forEach(el => {
+    const [grp, key] = el.dataset.s.split('.');
+    const v = (tl[grp] || {})[key];
+    if (el.type === 'checkbox') el.checked = !!v; else el.value = v ?? '';
+  });
+}
+$('mode').onchange =() => { tl.music.mode = $('mode').value; saveSoon(); };
 $('section').onchange = () => { tl.music.section = parseInt($('section').value) || 0; saveSoon(); };
 $('refresh').onclick = async () => {
   tl = await (await fetch('/api/refresh', {method:'POST'})).json(); draw();

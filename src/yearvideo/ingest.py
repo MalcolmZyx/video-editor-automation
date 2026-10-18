@@ -38,6 +38,7 @@ class MediaItem:
     taken: str  # ISO timestamp (EXIF/creation time, else file mtime)
     size_bytes: int
     duration: float | None = None  # videos only
+    has_audio: bool = False  # videos only
 
 
 def _photo_info(path: Path) -> tuple[int, int, str | None]:
@@ -71,6 +72,15 @@ def _video_info(path: Path) -> tuple[int, int, float, str | None]:
     return w, h, float(data["format"]["duration"]), created
 
 
+def _has_audio(path: Path) -> bool:
+    out = subprocess.run(
+        [find_tool("ffprobe"), "-v", "error", "-select_streams", "a:0", "-show_entries",
+         "stream=codec_type", "-of", "csv=p=0", str(path)],
+        check=True, capture_output=True, text=True,
+    )  # fmt: skip
+    return bool(out.stdout.strip())
+
+
 def scan_month(root: Path) -> list[MediaItem]:
     items: list[MediaItem] = []
     for p in sorted(root.rglob("*")):
@@ -84,7 +94,9 @@ def scan_month(root: Path) -> list[MediaItem]:
             items.append(MediaItem(rel, "photo", w, h, taken or mtime, p.stat().st_size))
         elif ext in VIDEO_EXT:
             w, h, dur, created = _video_info(p)
-            items.append(MediaItem(rel, "video", w, h, created or mtime, p.stat().st_size, dur))
+            items.append(
+                MediaItem(rel, "video", w, h, created or mtime, p.stat().st_size, dur, _has_audio(p))
+            )
     items.sort(key=lambda i: (i.taken, i.id))  # chronological story order
     return items
 

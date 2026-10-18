@@ -3,6 +3,13 @@
 Turns a year of photos, videos and songs into one recap video. Free/open-source tools only
 (Python, ffmpeg, numpy, Pillow). You review and edit everything before anything is final.
 
+## Try it with fake data first
+
+```powershell
+.venv\Scripts\yearvideo demo          # makes fake photos/videos/songs in output\demo, plans them, opens the review UI
+.venv\Scripts\yearvideo year output\demo   # renders every fake month and joins them into output\demo\year.mp4
+```
+
 ## Folder layout
 
 ```
@@ -31,6 +38,16 @@ re-renders months you changed.
 - ▲▼ reorder. **Rescan folder** picks up files you added or removed without losing your edits.
 - Music mode: `fit` (whole song, real music only), `loop_cut` (stop after a chorus/section, fade out, top up with
   another song if needed), `multi_song` (chain songs), `shared_song` (one song across months).
+
+## Video sound
+Clips' own sound is off by default. Turn it on for everything (Month settings) or per clip (the **sound**
+dropdown: default / keep / mute, plus a volume box). While a clip's sound plays the music dips to the
+configured level and recovers smoothly.
+
+## Fades
+`config/default.yaml` -> `fade:` sets picture fade in/out length and colour at the start/end of each month and
+the music fade in / fade-out-when-cut-early. Each month copies these into its `timeline.json` and the
+**Month settings** panel edits them. Any single photo/clip can also have its own **fade in/out** seconds.
 
 ## Settings
 `config/default.yaml`: photo/video min and max seconds, resolution, fps, title card, fade.
