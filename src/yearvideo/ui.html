@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Month Review</title>
+<style>
+  :root { --bg:#14161c; --card:#1f232c; --fg:#eceff4; --mut:#8b93a3; --acc:#5aa9ff; --bad:#ff6b6b; --ok:#5fd38d; }
+  @media (prefers-color-scheme: light) { :root { --bg:#f4f5f7; --card:#fff; --fg:#1b1f27; --mut:#6b7280; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px system-ui, sans-serif; }
+  header { position:sticky; top:0; z-index:5; background:var(--bg); padding:12px 16px; border-bottom:1px solid #0003;
+           display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+  header h1 { font-size:16px; margin:0 8px 0 0; }
+  button, select, input { font:inherit; color:inherit; background:var(--card); border:1px solid #8883; border-radius:6px; padding:6px 10px; }
+  button { cursor:pointer; } button.primary { background:var(--acc); color:#fff; border-color:transparent; }
+  #status { color:var(--mut); } .bad { color:var(--bad); } .ok { color:var(--ok); }
+  main { padding:16px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:12px; }
+  .card { background:var(--card); border-radius:8px; overflow:hidden; border:1px solid #8883; }
+  .card.off { opacity:.55; }
+  .card img { width:100%; aspect-ratio:16/9; object-fit:cover; display:block; cursor:pointer; background:#000; }
+  .card .b { padding:8px; display:grid; gap:6px; }
+  .name { font-size:12px; color:var(--mut); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .row { display:flex; gap:6px; align-items:center; justify-content:space-between; }
+  .row input[type=number] { width:70px; }
+  .badge { font-size:11px; padding:1px 6px; border-radius:10px; background:#8883; }
+  h2 { font-size:14px; color:var(--mut); margin:24px 0 8px; }
+  video { max-width:100%; margin-top:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Month</h1>
+  <label>Music mode
+    <select id="mode"><option>fit</option><option>loop_cut</option><option>multi_song</option><option>shared_song</option></select>
+  </label>
+  <label>Section <input id="section" type="number" min="0" value="0" style="width:60px"></label>
+  <span id="status"></span>
+  <span style="flex:1"></span>
+  <button id="refresh" title="Pick up files added to or removed from the folder">Rescan folder</button>
+  <button id="render" class="primary">Render month</button>
+  <span id="rstatus" class="badge"></span>
+</header>
+<main>
+  <div id="kept" class="grid"></div>
+  <h2 id="dh">Dropped</h2>
+  <div id="dropped" class="grid"></div>
+  <div id="out"></div>
+</main>
+<script>
+let tl = null, timer = null;
+const $ = (id) => document.getElementById(id);
+const enc = (s) => s.split('/').map(encodeURIComponent).join('/');
+
+async function load() { tl = await (await fetch('/api/timeline')).json(); draw(); }
+function saveSoon() { clearTimeout(timer); $('status').textContent = 'saving…'; timer = setTimeout(save, 400); }
+async function save() {
+  tl = await (await fetch('/api/timeline', {method:'POST', body: JSON.stringify(tl)})).json();
+  draw();
+}
+
+function card(it, idx) {
+  const sim = (tl.similar_groups || []).findIndex(g => g.includes(it.id));
+  const d = document.createElement('div');
+  d.className = 'card' + (it.keep ? '' : ' off');
+  if (it.kind === 'title') {
+    d.innerHTML = `<div class="b"><div class="row"><b>Title card</b><span class="badge">title</span></div>
+      <input value="${it.text}" data-f="text"><div class="row"><span>seconds</span>
+      <input type="number" step="0.5" min="0.5" value="${it.duration_override ?? ''}" data-f="ov"></div></div>`;
+  } else {
+    const t = it.kind === 'video' ? `?t=${it.src_in || 0}` : '';
+    d.innerHTML = `<img loading="lazy" src="/thumb/${enc(it.id)}${t}" title="open full size">
+      <div class="b"><div class="name" title="${it.id}">${it.id}</div>
+      <div class="row"><label><input type="checkbox" data-f="keep" ${it.keep ? 'checked' : ''}> keep</label>
+        <span class="badge">${it.kind}${it.duration ? ' · ' + it.duration.toFixed(1) + 's' : ''}</span></div>
+      <div class="row"><span>length</span><input type="number" step="0.5" min="0.5" placeholder="auto"
+        value="${it.duration_override ?? ''}" data-f="ov"></div>
+      ${it.kind === 'video' ? `<div class="row"><span>start at</span><input type="number" step="0.5" min="0"
+        value="${(it.src_in || 0).toFixed(1)}" data-f="in"></div>` : ''}
+      ${it.drop_reason ? `<div class="name bad">${it.drop_reason}</div>` : ''}
+      ${sim >= 0 ? `<div class="name">similar group ${sim + 1}</div>` : ''}
+      ${it.keep ? `<div class="row"><button data-f="up">▲</button><button data-f="down">▼</button></div>` : ''}</div>`;
+    d.querySelector('img').onclick = () => window.open('/media/' + enc(it.id));
+  }
+  d.querySelectorAll('[data-f]').forEach(el => {
+    const f = el.dataset.f;
+    el.onchange = el.onclick = (e) => {
+      if (f === 'keep') it.keep = el.checked;
+      else if (f === 'ov') it.duration_override = el.value === '' ? null : parseFloat(el.value);
+      else if (f === 'in') { it.src_in = parseFloat(el.value) || 0; it.src_in_auto = false; }
+      else if (f === 'text') it.text = el.value;
+      else if (f === 'up' || f === 'down') {
+        if (e.type !== 'click') return;
+        const j = idx + (f === 'up' ? -1 : 1);
+        if (j < 0 || j >= tl.items.length) return;
+        [tl.items[idx], tl.items[j]] = [tl.items[j], tl.items[idx]];
+      } else return;
+      if (el.tagName === 'BUTTON' || e.type === 'change') saveSoon();
+    };
+  });
+  return d;
+}
+
+function draw() {
+  $('title').textContent = tl.month;
+  $('mode').value = tl.music.mode; $('section').value = tl.music.section;
+  const s = $('status');
+  s.className = tl.fits ? 'ok' : 'bad';
+  s.textContent = `${tl.total.toFixed(1)}s · ${tl.fits ? 'fits the music' : tl.note}`;
+  $('kept').replaceChildren(...tl.items.map((it, i) => it.keep ? card(it, i) : null).filter(Boolean));
+  const dropped = tl.items.map((it, i) => it.keep ? null : card(it, i)).filter(Boolean);
+  $('dh').textContent = `Dropped (${dropped.length}) — tick “keep” to restore`;
+  $('dropped').replaceChildren(...dropped);
+}
+
+$('mode').onchange = () => { tl.music.mode = $('mode').value; saveSoon(); };
+$('section').onchange = () => { tl.music.section = parseInt($('section').value) || 0; saveSoon(); };
+$('refresh').onclick = async () => {
+  tl = await (await fetch('/api/refresh', {method:'POST'})).json(); draw();
+};
+$('render').onclick = async () => {
+  await save(); await fetch('/api/render', {method:'POST'}); poll();
+};
+async function poll() {
+  const r = await (await fetch('/api/render_status')).json();
+  $('rstatus').textContent = r.status === 'error' ? 'error: ' + r.error : r.status;
+  if (r.status === 'running') setTimeout(poll, 1500);
+  if (r.status === 'done' || (r.status === 'idle' && r.has_output)) {
+    $('out').innerHTML = `<h2>Rendered month</h2><video controls src="/media/month.mp4?${Date.now()}"></video>`;
+  }
+}
+load(); poll();
+</script>
+</body>
+</html>

@@ -106,5 +106,5 @@ def render_month(tl: dict, month_dir: Path, out: Path, encoder: str | None = Non
         graph = ";".join([*chains, f"{labels}concat=n={n}:v=0:a=1[aout]"])
         out.parent.mkdir(parents=True, exist_ok=True)
         _run([ff, "-y", "-v", "error", *inputs, "-filter_complex", graph, "-map", "0:v", "-map", "[aout]",
-              "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", str(out)])  # fmt: skip
+              "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2", "-shortest", str(out)])  # fmt: skip
     return out

@@ -13,6 +13,8 @@ from .pipeline import (
     save_timeline,
 )
 from .render import render_month
+from .server import serve
+from .year import build_year
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -24,11 +26,32 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--config", type=Path)
     r = sub.add_parser("replan", help="recompute after editing keep/duration/mode in timeline.json")
     r.add_argument("month_dir", type=Path)
+    v = sub.add_parser("review", help="open the local review UI for a month")
+    v.add_argument("month_dir", type=Path)
+    v.add_argument("--port", type=int, default=8765)
+    y = sub.add_parser("year", help="plan/render every month folder and join into year.mp4")
+    y.add_argument("year_dir", type=Path)
+    y.add_argument("-o", "--out", type=Path)
     d = sub.add_parser("render", help="render timeline.json to mp4")
     d.add_argument("month_dir", type=Path)
     d.add_argument("-o", "--out", type=Path)
     a = ap.parse_args(argv)
 
+    if a.cmd == "year":
+        print(f"rendered {build_year(a.year_dir, a.out)}")
+        return
+    if a.cmd == "review":
+        import webbrowser
+
+        server = serve(a.month_dir, a.port)
+        url = f"http://127.0.0.1:{a.port}/"
+        print(f"review UI at {url}  (Ctrl+C to stop)")
+        webbrowser.open(url)
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        return
     tl_path = a.month_dir / "timeline.json"
     if a.cmd == "plan":
         tl = build_timeline(a.month_dir, load_config(a.config), a.mode)

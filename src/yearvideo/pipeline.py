@@ -43,6 +43,15 @@ def _track_to_dict(t: Track, file: str) -> dict:
     return d
 
 
+def _analyse_songs(month_dir: Path, existing: list[dict]) -> list[dict]:
+    """Existing tracks are kept as-is; only songs not seen before are analysed."""
+    have = {t["file"] for t in existing}
+    songs = sorted(p for p in (month_dir / "music").glob("*") if p.suffix.lower() in AUDIO_EXT)
+    new = [_track_to_dict(analyze_track(p), f"music/{p.name}") for p in songs if f"music/{p.name}" not in have]
+    present = {f"music/{p.name}" for p in songs}
+    return [t for t in existing if t["file"] in present] + new
+
+
 def build_timeline(month_dir: Path, cfg: dict, mode: str | None = None) -> dict:
     catalog = scan_month(month_dir)
     dd = dedupe_photos(month_dir, catalog)
@@ -52,6 +61,7 @@ def build_timeline(month_dir: Path, cfg: dict, mode: str | None = None) -> dict:
             {
                 "id": "__title__",
                 "kind": "title",
+                "taken": None,
                 "text": month_title(month_dir.name),
                 "source_duration": None,
                 "keep": True,
@@ -65,6 +75,7 @@ def build_timeline(month_dir: Path, cfg: dict, mode: str | None = None) -> dict:
             {
                 "id": m.id,
                 "kind": m.kind,
+                "taken": m.taken,
                 "source_duration": m.duration,
                 "keep": dropped is None,
                 "drop_reason": dropped,
@@ -74,8 +85,7 @@ def build_timeline(month_dir: Path, cfg: dict, mode: str | None = None) -> dict:
                 "scores": score_video(month_dir / m.id) if m.kind == "video" else None,
             }
         )
-    songs = sorted(p for p in (month_dir / "music").glob("*") if p.suffix.lower() in AUDIO_EXT)
-    tracks = [_track_to_dict(analyze_track(p), f"music/{p.name}") for p in songs]
+    tracks = _analyse_songs(month_dir, [])
     tl = {
         "month": month_dir.name,
         "output": cfg["output"],
@@ -125,3 +135,30 @@ def save_timeline(tl: dict, path: Path) -> None:
 
 def load_timeline(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def refresh_timeline(tl: dict, month_dir: Path) -> dict:
+    """Pick up files added to / removed from the month folder, keeping all review decisions."""
+    catalog = scan_month(month_dir)
+    on_disk = {m.id for m in catalog}
+    dd = dedupe_photos(month_dir, catalog)
+    known = {i["id"] for i in tl["items"]}
+    tl["items"] = [i for i in tl["items"] if i["kind"] == "title" or i["id"] in on_disk]
+    for m in sorted(catalog, key=lambda m: (m.taken, m.id)):
+        if m.id in known:
+            continue
+        reason = dd.dropped.get(m.id)
+        item = {
+            "id": m.id, "kind": m.kind, "taken": m.taken, "source_duration": m.duration,
+            "keep": reason is None, "drop_reason": reason, "duration_override": None,
+            "src_in": 0.0, "src_in_auto": m.kind == "video",
+            "scores": score_video(month_dir / m.id) if m.kind == "video" else None,
+        }  # fmt: skip
+        pos = next(
+            (n for n, i in enumerate(tl["items"]) if i.get("taken") and i["taken"] > m.taken),
+            len(tl["items"]),
+        )
+        tl["items"].insert(pos, item)
+    tl["similar_groups"] = dd.similar_groups
+    tl["tracks"] = _analyse_songs(month_dir, tl["tracks"])
+    return replan(tl)

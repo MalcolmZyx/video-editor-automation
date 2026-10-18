@@ -5,6 +5,9 @@ description = "Automated yearly recap video builder (free/open-source tools only
 requires-python = ">=3.11"
 dependencies = ["pyyaml", "pillow", "imagehash", "numpy"]
 
+[project.scripts]
+yearvideo = "yearvideo.cli:main"
+
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
 
@@ -14,6 +17,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+yearvideo = ["ui.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
