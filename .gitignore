@@ -12,3 +12,4 @@ music/
 *.mp3
 *.wav
 !tests/fixtures/**
+*.egg-info/
