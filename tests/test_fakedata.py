@@ -1,6 +1,4 @@
-import shutil
 
-import pytest
 
 from yearvideo.fakedata import generate_month
 
@@ -14,7 +12,6 @@ def test_generates_expected_files(tmp_path):
     assert (tmp_path / "music" / song["file"]).exists()
 
 
-@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
 def test_generates_videos(tmp_path):
     truth = generate_month(tmp_path, n_photos=1, n_dupes=0, n_videos=1)
     assert (tmp_path / "videos" / truth["videos"][0]).stat().st_size > 0

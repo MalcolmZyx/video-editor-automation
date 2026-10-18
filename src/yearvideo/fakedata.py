@@ -12,6 +12,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
+from .ingest import find_tool
+
 SR = 44100
 
 
@@ -74,9 +76,9 @@ def make_song(
     }
 
 
-def make_video(path: Path, seconds: float, seed: int, ffmpeg: str = "ffmpeg") -> None:
+def make_video(path: Path, seconds: float, seed: int) -> None:
     cmd = [
-        ffmpeg, "-y", "-loglevel", "error",
+        find_tool("ffmpeg"), "-y", "-loglevel", "error",
         "-f", "lavfi", "-i", f"testsrc2=size=1280x720:rate=30:duration={seconds}",
         "-f", "lavfi", "-i", f"sine=frequency={300 + seed * 40}:duration={seconds}",
         "-vf", f"hue=h={seed * 37 % 360}", "-pix_fmt", "yuv420p", "-shortest", str(path),
