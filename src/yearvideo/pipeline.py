@@ -15,8 +15,10 @@ import yaml
 
 from .dedupe import dedupe_photos
 from .ingest import scan_month
+from .moments import pick_start, score_video
 from .music import analyze_track
 from .planner import Item, Limits, Track, plan_month
+from .titlecard import month_title
 
 AUDIO_EXT = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac"}
 DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "config" / "default.yaml"
@@ -45,6 +47,18 @@ def build_timeline(month_dir: Path, cfg: dict, mode: str | None = None) -> dict:
     catalog = scan_month(month_dir)
     dd = dedupe_photos(month_dir, catalog)
     items = []
+    if cfg.get("title", {}).get("enabled"):
+        items.append(
+            {
+                "id": "__title__",
+                "kind": "title",
+                "text": month_title(month_dir.name),
+                "source_duration": None,
+                "keep": True,
+                "drop_reason": None,
+                "duration_override": cfg["title"]["seconds"],
+            }
+        )
     for m in catalog:
         dropped = dd.dropped.get(m.id)
         items.append(
@@ -56,6 +70,8 @@ def build_timeline(month_dir: Path, cfg: dict, mode: str | None = None) -> dict:
                 "drop_reason": dropped,
                 "duration_override": None,
                 "src_in": 0.0,  # videos: where in the source the clip starts
+                "src_in_auto": m.kind == "video",  # False once the user sets src_in by hand
+                "scores": score_video(month_dir / m.id) if m.kind == "video" else None,
             }
         )
     songs = sorted(p for p in (month_dir / "music").glob("*") if p.suffix.lower() in AUDIO_EXT)
@@ -63,6 +79,7 @@ def build_timeline(month_dir: Path, cfg: dict, mode: str | None = None) -> dict:
     tl = {
         "month": month_dir.name,
         "output": cfg["output"],
+        "fade_seconds": cfg.get("fade_seconds", 0.0),
         "limits": asdict(limits_from(cfg)),
         "music": {"mode": mode or cfg["music"]["mode"], "section": 0, "offset": 0.0},
         "tracks": tracks,
@@ -91,6 +108,8 @@ def replan(tl: dict) -> dict:
     for i in tl["items"]:
         p = planned.get(i["id"])
         i["start"], i["duration"] = (p.start, p.duration) if p else (None, None)
+        if p and i["kind"] == "video" and i.get("src_in_auto") and i.get("scores"):
+            i["src_in"] = pick_start(i["scores"], p.duration, i["source_duration"])
     tl["audio"] = [
         {"file": by_id[a.track_id]["file"], "start": a.start, "end": a.end, "fade_out": a.fade_out}
         for a in plan.audio

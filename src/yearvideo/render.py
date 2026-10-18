@@ -14,6 +14,7 @@ from pathlib import Path
 from PIL import Image
 
 from .ingest import find_tool
+from .titlecard import make_title_card
 
 ENCODERS = {
     "libx264": ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"],
@@ -70,12 +71,21 @@ def render_month(tl: dict, month_dir: Path, out: Path, encoder: str | None = Non
         for n, it in enumerate(items):
             src = month_dir / it["id"]
             seg = work / f"seg_{n:04d}.mp4"
-            if it["kind"] == "photo":
-                src = _upright(src, work)
+            if it["kind"] in ("photo", "title"):
+                if it["kind"] == "title":
+                    src = make_title_card(it["text"], (w, h), work / f"title_{n}.png")
+                else:
+                    src = _upright(src, work)
                 inp = ["-loop", "1", "-framerate", str(fps), "-t", f"{it['duration']:.3f}", "-i", str(src)]
             else:
                 inp = ["-ss", f"{it['src_in']:.3f}", "-t", f"{it['duration']:.3f}", "-i", str(src)]
-            _run([ff, "-y", "-v", "error", *inp, "-vf", _fit(w, h), "-an", *enc, str(seg)])
+            vf = _fit(w, h)
+            fade = min(tl.get("fade_seconds", 0.0), it["duration"] / 2)
+            if fade and n == 0:
+                vf += f",fade=t=in:st=0:d={fade:.3f}"
+            if fade and n == len(items) - 1:
+                vf += f",fade=t=out:st={it['duration'] - fade:.3f}:d={fade:.3f}"
+            _run([ff, "-y", "-v", "error", *inp, "-vf", vf, "-an", *enc, str(seg)])
             segs.append(seg)
 
         listing = work / "list.txt"

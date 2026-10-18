@@ -8,5 +8,9 @@ photo:
 video:
   max_seconds: 8.0      # clips are trimmed to this unless overridden
   min_seconds: 1.5
+title:
+  enabled: true
+  seconds: 2.5
+fade_seconds: 0.5     # fade in/out at each month's start/end
 music:
   mode: fit             # fit | loop_cut | multi_song | shared_song

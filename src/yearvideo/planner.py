@@ -63,7 +63,7 @@ class MonthPlan:
 def _bounds(item: Item, lim: Limits) -> tuple[float, float]:
     if item.duration_override is not None:
         return item.duration_override, item.duration_override
-    if item.kind == "photo":
+    if item.kind != "video":
         return lim.photo_min, lim.photo_max
     hi = lim.video_max
     if item.source_duration is not None:
