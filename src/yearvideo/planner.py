@@ -96,11 +96,13 @@ def distribute(bounds: list[tuple[float, float]], budget: float) -> list[float]:
     return d
 
 
-def _snap_to_beats(durs: list[float], bounds: list[tuple[float, float]], beats: list[float]) -> None:
-    """Nudge cuts to the nearest beat where both neighbours stay within their limits."""
+def _snap_to_beats(
+    durs: list[float], bounds: list[tuple[float, float]], beats: list[float], strength: float = 1.0
+) -> None:
+    """Nudge cuts toward the nearest beat (by `strength`, 0-1) while both neighbours stay in limits."""
     for k in range(len(durs) - 1):
         cut = sum(durs[: k + 1])
-        delta = _nearest(beats, cut) - cut
+        delta = (_nearest(beats, cut) - cut) * strength
         a, b = bounds[k], bounds[k + 1]
         if (
             a[0] != a[1]
@@ -207,14 +209,18 @@ def plan_month(
     offset: float = 0.0,
     section: int = 0,
     beat_sync: str = "snap",
+    beat_strength: float = 0.6,
+    beat_every: int = 1,
+    audio_override: tuple[float, list[float]] | None = None,
 ) -> MonthPlan:
+    """Plan one month. `audio_override` = (length, beat times) when the music is arranged by hand."""
     lim = limits or Limits()
     kept = [i for i in items if i.keep]
     if not kept:
         return MonthPlan([], [], 0.0, False, "nothing to plan")
 
     bounds = [_bounds(i, lim) for i in kept]
-    if not tracks:  # photos-only month: use the middle of every length range
+    if not tracks and audio_override is None:  # photos-only month: use the middle of every length range
         durs = [(lo + hi) / 2 for lo, hi in bounds]
         planned, t = [], 0.0
         for item, d in zip(kept, durs, strict=True):
@@ -222,7 +228,11 @@ def plan_month(
             t += d
         return MonthPlan(planned, [], round(t, 3), True, "no music selected")
     lo, hi = sum(b[0] for b in bounds), sum(b[1] for b in bounds)
-    audio, total, note = _build_audio(tracks, mode, lo, hi, offset, section)
+    if audio_override is not None:
+        audio, (total, manual_beats), note = [], audio_override, ""
+    else:
+        audio, total, note = _build_audio(tracks, mode, lo, hi, offset, section)
+        manual_beats = []
 
     fits = lo - 1e-6 <= total <= hi + 1e-6
     if not fits:
@@ -235,21 +245,22 @@ def plan_month(
 
     durs = distribute(bounds, total)
 
-    month_beats: list[float] = []
+    month_beats: list[float] = list(manual_beats)
     pos = 0.0
     for seg in audio:
         t = next(t for t in tracks if t.id == seg.track_id)
         month_beats += [pos + (b - seg.start) for b in t.beats if seg.start <= b <= seg.end]
         pos += seg.end - seg.start
     month_beats.sort()
+    month_beats = month_beats[:: max(1, int(beat_every))]  # e.g. every 2nd beat = calmer pacing
     if month_beats and beat_sync == "on_beat":
         durs = _on_beat(bounds, durs, month_beats, total)
     elif month_beats and beat_sync == "snap":
-        _snap_to_beats(durs, bounds, month_beats)
+        _snap_to_beats(durs, bounds, month_beats, beat_strength)
 
     planned, t = [], 0.0
     for item, d in zip(kept, durs, strict=True):
         planned.append(PlannedItem(item.id, round(t, 3), round(d, 3)))
         t += d
-    next_off = (audio[-1].end if mode == "shared_song" else None)
+    next_off = audio[-1].end if audio and mode == "shared_song" else None
     return MonthPlan(planned, audio, round(t, 3), fits, note, next_off)

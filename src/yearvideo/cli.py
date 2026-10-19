@@ -10,6 +10,7 @@ from .pipeline import (
     build_timeline,
     load_config,
     load_timeline,
+    refresh_timeline,
     replan,
     save_timeline,
 )
@@ -25,7 +26,10 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("month_dir", type=Path)
     p.add_argument("--mode", choices=["fit", "loop_cut", "multi_song", "shared_song"])
     p.add_argument("--config", type=Path)
+    p.add_argument("--force", action="store_true", help="re-plan from scratch, discarding your edits")
     p.add_argument("--music-dir", help="folder of songs you can pick from")
+    rs = sub.add_parser("rescan", help="pick up added/removed files in a planned month, keeping all your edits")
+    rs.add_argument("month_dir", type=Path)
     r = sub.add_parser("replan", help="recompute after editing keep/duration/mode in timeline.json")
     r.add_argument("month_dir", type=Path)
     v = sub.add_parser("review", help="open the local review UI for a month")
@@ -78,7 +82,15 @@ def main(argv: list[str] | None = None) -> None:
         return
     tl_path = a.month_dir / "timeline.json"
     if a.cmd == "plan":
+        if tl_path.exists() and not a.force:
+            raise SystemExit(
+                f"{tl_path} already exists (your edits live there). Use `yearvideo rescan {a.month_dir}` to pick up "
+                "new files, or `plan --force` to start over (the old file is kept as timeline.json.bak)."
+            )
         tl = build_timeline(a.month_dir, load_config(a.config), a.mode, a.music_dir)
+        save_timeline(tl, tl_path)
+    elif a.cmd == "rescan":
+        tl = refresh_timeline(load_timeline(tl_path), a.month_dir)
         save_timeline(tl, tl_path)
     elif a.cmd == "replan":
         tl = replan(load_timeline(tl_path))

@@ -1,9 +1,9 @@
 """Render a month's timeline.json to an mp4 with ffmpeg.
 
 Every item becomes a small uniform clip. Where two items are joined by a cross-fade, the
-overlap is rendered as its own short transition clip (the tail of one item blended into the
-head of the next), so all clips can still be joined without re-encoding. Captions are drawn
-as overlays and the music (plus any kept clip sound) is mixed in the final pass.
+overlap is rendered as its own short transition clip (the end of one item blended into the
+start of the next), so all clips can still be joined without re-encoding. Captions are drawn
+as overlays and the music (all song layers, plus any kept clip sound) is mixed in the final pass.
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ XFADES = {
     "fade", "fadeblack", "fadewhite", "dissolve", "wipeleft", "wiperight", "wipeup", "wipedown",
     "slideleft", "slideright", "slideup", "slidedown", "circleopen", "circleclose", "pixelize", "radial",
 }  # fmt: skip
+ALIGN = {"start": 0.0, "center": 0.5, "end": 1.0}  # how much of a blend lies BEFORE the cut
 MIN_BODY = 0.1  # every item keeps at least this much un-blended screen time
 PREVIEW_SIZE = (640, 360)
 
@@ -83,19 +84,40 @@ def month_fades(tl: dict, it: dict, n: int, count: int) -> tuple[float, float]:
     return f_in, f_out
 
 
+def align_factor(tl: dict) -> float:
+    return ALIGN.get(tl["transition"].get("align", "center"), 0.5)
+
+
 def plan_transitions(tl: dict, items: list[dict]) -> list[tuple[str, float]]:
-    """(type, seconds) for the join after each item except the last; seconds 0 = hard cut."""
+    """(type, seconds) for the join after each item except the last; seconds 0 = hard cut.
+
+    A blend of length t at a cut lies from (cut - a*t) to (cut + (1-a)*t), where a is 0, 0.5 or 1
+    for start / center / end alignment. Lengths are clamped so every item keeps some clear screen time.
+    """
     base = tl["transition"]
+    a = align_factor(tl)
     out: list[tuple[str, float]] = []
+    prev = 0.0
     for i, it in enumerate(items[:-1]):
         typ = it.get("transition_type") or base["type"]
         secs = it.get("transition_out")
         secs = base["seconds"] if secs is None else secs
         if typ not in XFADES or secs <= 0:
             out.append(("cut", 0.0))
+            prev = 0.0
             continue
-        secs = min(secs, 3.0, items[i + 1]["duration"] - MIN_BODY)
-        out.append((typ, max(secs, 0.0)) if secs > 0.05 else ("cut", 0.0))
+        cap = 3.0
+        if a > 0:
+            cap = min(cap, (it["duration"] - (1 - a) * prev - MIN_BODY) / a)
+        if a < 1:
+            cap = min(cap, (items[i + 1]["duration"] - MIN_BODY) / (1 - a))
+        secs = min(secs, cap)
+        if secs > 0.05:
+            out.append((typ, secs))
+            prev = secs
+        else:
+            out.append(("cut", 0.0))
+            prev = 0.0
     return out
 
 
@@ -109,28 +131,29 @@ def wants_clip_sound(tl: dict, it: dict) -> bool:
 def audio_graph(
     tl: dict, month_dir: Path, items: list[dict], video: Path, total: float
 ) -> tuple[list[str], str, int]:
-    """Inputs + filter graph: the music with any kept clip sounds mixed quietly underneath.
+    """Inputs + filter graph: every music clip (all layers) mixed, plus kept clip sounds underneath.
 
     Returns (inputs, graph, number of inputs used) so the caller can add more inputs after them.
     """
-    fade, snd = tl["fade"], tl["sound"]
+    snd = tl["sound"]
     inputs, chains = ["-i", str(video)], []
-    songs = tl["audio"]
     idx = 1
-    if songs:
-        for k, a in enumerate(songs):
-            dur = a["end"] - a["start"]
-            inputs += ["-ss", f"{a['start']:.3f}", "-t", f"{dur:.3f}", "-i", str(song_path(month_dir, a["file"]))]
-            f = ""
-            if a["fade_out"] and fade["music_out"] > 0:
-                d = min(fade["music_out"], dur / 2)
-                f += f"afade=t=out:st={dur - d:.3f}:d={d:.3f},"
-            if k == 0 and fade["music_in"] > 0:
-                f += f"afade=t=in:st=0:d={min(fade['music_in'], dur / 2):.3f},"
-            chains.append(f"[{idx}:a]{f}asetpts=PTS-STARTPTS[a{k}]")
-            idx += 1
-        labels = "".join(f"[a{k}]" for k in range(len(songs)))
-        chains.append(f"{labels}concat=n={len(songs)}:v=0:a=1,volume={snd['music_volume']}[mus]")
+    clips = tl.get("audio_clips", [])
+    for k, c in enumerate(clips):
+        dur = c["src_out"] - c["src_in"]
+        inputs += ["-ss", f"{c['src_in']:.3f}", "-t", f"{dur:.3f}", "-i", str(song_path(month_dir, c["file"]))]
+        f = "aformat=channel_layouts=stereo,"
+        if c.get("fade_in", 0) > 0:
+            f += f"afade=t=in:st=0:d={min(c['fade_in'], dur / 2):.3f},"
+        if c.get("fade_out", 0) > 0:
+            d = min(c["fade_out"], dur / 2)
+            f += f"afade=t=out:st={dur - d:.3f}:d={d:.3f},"
+        chains.append(f"[{idx}:a]{f}volume={c.get('volume', 1.0)},adelay={round(c['start'] * 1000)}:all=1[m{k}]")
+        idx += 1
+    if clips:
+        labels = "".join(f"[m{k}]" for k in range(len(clips)))
+        mixed = f"{labels}amix=inputs={len(clips)}:normalize=0:duration=longest," if len(clips) > 1 else f"{labels}"
+        chains.append(f"{mixed}volume={snd['music_volume']}[mus]")
     else:  # photos-only month: silence so the file still has an audio track
         inputs += ["-f", "lavfi", "-t", f"{total:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
         chains.append(f"[{idx}:a]anull[mus]")
@@ -163,18 +186,14 @@ def caption_graph(
         s, e = max(0.0, c["start"]), min(total, c["end"])
         if e - s < 0.05 or not c["text"].strip():
             continue
-        png = make_caption_image(
-            c["text"], size, work / f"cap_{k}.png", height_pct=c["size"], color=c["color"],
-            background=c["background"], background_opacity=c["background_opacity"], position=c["position"],
-        )  # fmt: skip
+        png = make_caption_image(c, size, work / f"cap_{k}.png")
         inputs += ["-loop", "1", "-framerate", str(fps), "-t", f"{total:.3f}", "-i", str(png)]
         f = max(0.0, min(c.get("fade", 0.3), (e - s) / 2))
-        fi = f"fade=t=in:st={s:.3f}:d={f:.3f}:alpha=1," if f else ""
-        fo = f"fade=t=out:st={e - f:.3f}:d={f:.3f}:alpha=1," if f else ""
-        if not f:  # hard on/off: blank the stream outside the time range
-            fi = f"fade=t=in:st={s:.3f}:d=0.001:alpha=1,"
-            fo = f"fade=t=out:st={e:.3f}:d=0.001:alpha=1,"
-        parts.append(f"[{first_input + k}:v]format=rgba,{fi}{fo.rstrip(',')}[cap{k}]")
+        if f:
+            fi, fo = f"fade=t=in:st={s:.3f}:d={f:.3f}:alpha=1,", f"fade=t=out:st={e - f:.3f}:d={f:.3f}:alpha=1"
+        else:  # hard on/off: blank the stream outside the time range
+            fi, fo = f"fade=t=in:st={s:.3f}:d=0.001:alpha=1,", f"fade=t=out:st={e:.3f}:d=0.001:alpha=1"
+        parts.append(f"[{first_input + k}:v]format=rgba,{fi}{fo}[cap{k}]")
         parts.append(f"{last}[cap{k}]overlay=0:0:format=auto[o{k}]")
         last = f"[o{k}]"
         k += 1
@@ -197,6 +216,7 @@ def render_month(
         raise ValueError("timeline has no kept items")
     count = len(items)
     trans = plan_transitions(tl, items)
+    a = align_factor(tl)
     color = ffcolor(tl["fade"]["color"])
 
     with tempfile.TemporaryDirectory() as td:
@@ -212,22 +232,37 @@ def render_month(
             return "vid", month_dir / it["id"]
 
         def inputs_for(n: int, offset: float, dur: float) -> tuple[list[str], str]:
+            """Input args + padding filter giving `dur` seconds of item n starting `offset` into it.
+
+            Offsets before the start of a clip repeat its first frame; offsets past its end repeat the last.
+            """
             kind, path = source(n)
             if kind == "img":
                 return ["-loop", "1", "-framerate", str(fps), "-t", f"{dur:.3f}", "-i", str(path)], ""
             it = items[n]
-            ss = it["src_in"] + offset
+            raw = it["src_in"] + offset
+            lead, ss = max(0.0, -raw), max(0.0, raw)
             limit = it.get("source_duration")
-            pad = max(0.0, ss + dur - limit) if limit else 0.0
-            extra = f",tpad=stop_mode=clone:stop_duration={pad + 0.2:.3f}" if pad > 0 else ""
-            return ["-ss", f"{ss:.3f}", "-t", f"{dur:.3f}", "-i", str(path)], extra
+            need = dur - lead
+            take = min(need, limit - ss) if limit else need
+            if take <= 0.05:  # asked for something beyond the clip: hold its final frame
+                ss, take = max(0.0, (limit or 0) - 0.1), 0.1
+            tail = max(0.0, need - take)
+            pads = []
+            if lead > 0:
+                pads.append(f"start_mode=clone:start_duration={lead:.3f}")
+            if tail > 0:
+                pads.append(f"stop_mode=clone:stop_duration={tail + 0.1:.3f}")
+            extra = f",tpad={':'.join(pads)}" if pads else ""
+            return ["-ss", f"{ss:.3f}", "-t", f"{take:.3f}", "-i", str(path)], extra
 
         clips: list[Path] = []
         for n, it in enumerate(items):
             t_in = trans[n - 1][1] if n > 0 else 0.0
             t_out = trans[n][1] if n < count - 1 else 0.0
-            body = it["duration"] - t_in
-            inp, extra = inputs_for(n, t_in, body)
+            u0 = (1 - a) * t_in  # the first part of this item is already on screen in the incoming blend
+            body = it["duration"] - u0 - a * t_out
+            inp, extra = inputs_for(n, u0, body)
             vf = _fit(w, h, fps) + extra
             f_in, f_out = month_fades(tl, it, n, count)
             f_in = 0.0 if t_in else min(f_in, body)
@@ -237,12 +272,12 @@ def render_month(
             if f_out:
                 vf += f",fade=t=out:st={body - f_out:.3f}:d={f_out:.3f}:color={color}"
             clip = work / f"clip_{n:04d}.mp4"
-            _run([ff, "-y", "-v", "error", *inp, "-vf", vf, "-an", *enc, str(clip)])
+            _run([ff, "-y", "-v", "error", *inp, "-vf", vf, "-an", "-t", f"{body:.3f}", *enc, str(clip)])
             clips.append(clip)
-            if n < count - 1 and t_out > 0:  # blend the tail of this item into the head of the next
+            if n < count - 1 and t_out > 0:  # blend the end of this item into the start of the next
                 typ, secs = trans[n]
-                a_in, a_x = inputs_for(n, it["duration"], secs)
-                b_in, b_x = inputs_for(n + 1, 0.0, secs)
+                a_in, a_x = inputs_for(n, it["duration"] - a * secs, secs)
+                b_in, b_x = inputs_for(n + 1, -a * secs, secs)
                 graph = (
                     f"[0:v]{_fit(w, h, fps)}{a_x},setpts=PTS-STARTPTS[a];"
                     f"[1:v]{_fit(w, h, fps)}{b_x},setpts=PTS-STARTPTS[b];"
@@ -250,7 +285,7 @@ def render_month(
                 )
                 tclip = work / f"trans_{n:04d}.mp4"
                 _run([ff, "-y", "-v", "error", *a_in, *b_in, "-filter_complex", graph, "-map", "[v]",
-                      "-an", *enc, str(tclip)])  # fmt: skip
+                      "-an", "-t", f"{secs:.3f}", *enc, str(tclip)])  # fmt: skip
                 clips.append(tclip)
 
         listing = work / "list.txt"
@@ -266,5 +301,5 @@ def render_month(
         vmap, vcodec = ("[vout]", enc) if has_caps else ("0:v", ["-c:v", "copy"])
         _run([ff, "-y", "-v", "error", *inputs, *cap_inputs, "-filter_complex", graph, "-map", vmap,
               "-map", "[aout]", *vcodec, "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
-              "-shortest", str(out)])  # fmt: skip
+              "-t", f"{total:.3f}", str(out)])  # fmt: skip
     return out

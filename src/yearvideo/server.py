@@ -19,8 +19,10 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from PIL import Image, ImageOps
 
+from .fonts import list_fonts, resolve_font
 from .ingest import PHOTO_EXT, VIDEO_EXT, find_tool
 from .pipeline import (
+    add_layer,
     add_song,
     build_timeline,
     insert_card,
@@ -32,6 +34,7 @@ from .pipeline import (
     replan,
     save_timeline,
     song_path,
+    to_manual,
 )
 from .render import render_month
 from .year import month_folders
@@ -62,6 +65,8 @@ class Review:
         self.name = self.dir.name
         self.path = self.dir / "timeline.json"
         self.lock = threading.Lock()
+        self.proxy_lock = threading.Lock()
+        self.warming = False
         self.render_state = {"status": "idle", "error": None, "preview": False}
 
     def timeline(self) -> dict:
@@ -110,6 +115,57 @@ class Review:
                 im.thumbnail(THUMB)
                 im.save(out, quality=80)
         return out
+
+    def proxy_image(self, rel: str, width: int = 1280) -> Path | None:
+        """A web-sized JPEG of a photo for the live preview (originals can be huge or HEIC)."""
+        src = self.safe(rel)
+        if not src:
+            return None
+        key = hashlib.sha1(f"img{rel}{src.stat().st_mtime_ns}{width}".encode()).hexdigest()[:16]
+        out = self.dir / ".thumbs" / f"img_{key}.jpg"
+        if not out.exists():
+            out.parent.mkdir(exist_ok=True)
+            with Image.open(src) as im:
+                im = ImageOps.exif_transpose(im).convert("RGB")
+                im.thumbnail((width, width))
+                im.save(out, quality=85)
+        return out
+
+    def proxy_video(self, rel: str) -> Path | None:
+        """A small H.264 copy of a clip so any phone codec plays (and seeks) in the browser."""
+        src = self.safe(rel)
+        if not src:
+            return None
+        key = hashlib.sha1(f"vid{rel}{src.stat().st_mtime_ns}".encode()).hexdigest()[:16]
+        out = self.dir / ".proxy" / f"{key}.mp4"
+        with self.proxy_lock:
+            if not out.exists():
+                out.parent.mkdir(exist_ok=True)
+                tmp = out.with_suffix(".part.mp4")
+                subprocess.run(
+                    [find_tool("ffmpeg"), "-y", "-v", "error", "-i", str(src), "-vf", "scale=-2:480,fps=30",
+                     "-c:v", "libx264", "-preset", "ultrafast", "-crf", "30", "-g", "15", "-pix_fmt", "yuv420p",
+                     "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", str(tmp)],
+                    check=True, capture_output=True,
+                )  # fmt: skip
+                tmp.replace(out)
+        return out
+
+    def warm_proxies(self) -> None:
+        """Build the clip proxies in the background so the editor never waits on them."""
+        if self.warming:
+            return
+        self.warming = True
+
+        def work():
+            for it in self.timeline()["items"]:
+                if it["kind"] == "video":
+                    try:
+                        self.proxy_video(it["id"])
+                    except (subprocess.CalledProcessError, OSError):
+                        pass  # that clip just plays from the original file
+
+        threading.Thread(target=work, daemon=True).start()
 
     def render(self, preview: bool) -> None:
         def work():
@@ -225,13 +281,30 @@ def make_handler(app: App):
                 elif rv is None:
                     self._send(404, b"", "text/plain")
                 elif u.path == "/api/timeline":
-                    self._json(rv.timeline())
+                    tl = rv.timeline()
+                    rv.warm_proxies()
+                    self._json(tl)
+                elif u.path == "/api/fonts":
+                    self._json([{k: v for k, v in f.items() if k != "path"} for f in list_fonts()])
                 elif u.path == "/api/render_status":
                     self._json(rv.status())
                 elif u.path == "/api/songs":
                     self._json(list_songs(rv.dir, rv.timeline()))
                 elif u.path == "/song":
                     f = rv.song(q.get("file", [""])[0])
+                    self._file(f) if f else self._send(404, b"", "text/plain")
+                elif u.path.startswith("/font/"):
+                    f = resolve_font(unquote(u.path[6:]))
+                    self._file(f) if f else self._send(404, b"", "text/plain")
+                elif u.path.startswith("/img/"):
+                    name, _, rel = unquote(u.path[5:]).partition("/")
+                    r = app.get(name)
+                    f = r.proxy_image(rel) if r else None
+                    self._file(f) if f else self._send(404, b"", "text/plain")
+                elif u.path.startswith("/vproxy/"):
+                    name, _, rel = unquote(u.path[8:]).partition("/")
+                    r = app.get(name)
+                    f = r.proxy_video(rel) if r else None
                     self._file(f) if f else self._send(404, b"", "text/plain")
                 elif u.path.startswith("/thumb/"):
                     name, _, rel = unquote(u.path[7:]).partition("/")
@@ -279,6 +352,13 @@ def make_handler(app: App):
                         tl = add_song(tl, rv.dir, ref)
                     elif act == "remove":
                         tl = remove_song(tl, body["file"])
+                    elif act == "layer_add":
+                        ref = body["file"]
+                        if ref not in {s["file"] for s in list_songs(rv.dir, tl)}:
+                            return self._json({"error": "unknown song"}, 400)
+                        tl = add_layer(tl, rv.dir, ref, float(body.get("start", 0)))
+                    elif act == "to_manual":
+                        tl = to_manual(tl)
                     elif act == "library":
                         tl["music"]["library"] = body.get("library") or None
                     self._json(rv.save(tl))

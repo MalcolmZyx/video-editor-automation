@@ -107,3 +107,29 @@ def test_photos_only_month_has_no_music_but_plans():
     plan = plan_month(photos(10), [], "fit")
     assert plan.fits and plan.audio == []
     assert plan.total == pytest.approx(35.0)  # midpoint 3.5s each
+
+
+def test_gentle_snap_moves_cuts_only_part_of_the_way():
+    t = track(end=64.0, step=1.0)  # beats every 1.0s
+    full = plan_month(photos(15), [t], "fit", beat_sync="snap", beat_strength=1.0)
+    soft = plan_month(photos(15), [t], "fit", beat_sync="snap", beat_strength=0.4)
+    none = plan_month(photos(15), [t], "fit", beat_sync="off")
+
+    def off_beat(plan):
+        beats = [b - 4.0 for b in t.beats]
+        return sum(min(abs(p.start - b) for b in beats) for p in plan.items[1:])
+
+    assert off_beat(full) <= off_beat(soft) <= off_beat(none) + 1e-6
+    assert off_beat(soft) < off_beat(none) or off_beat(none) == 0
+
+
+def test_every_second_beat_gives_calmer_cut_points():
+    t = track(end=64.0, step=0.5)
+    plan = plan_month(photos(15), [t], "fit", beat_sync="on_beat", beat_every=2)
+    for p in plan.items[1:]:  # cuts only on every 2nd beat -> multiples of 1.0s
+        assert min(abs(p.start - k * 1.0) for k in range(61)) < 0.002
+
+
+def test_manual_audio_override_sets_the_month_length():
+    plan = plan_month(photos(20), [], "manual", audio_override=(60.0, [0.5 * k for k in range(121)]))
+    assert plan.fits and plan.total == pytest.approx(60.0, abs=0.01)

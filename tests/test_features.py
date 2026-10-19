@@ -48,6 +48,7 @@ def two_card_month(tmp_path, cfg):
     """A month with no media and no music: just a red card then a blue card, 3s each."""
     tl = build_timeline(tmp_path, cfg)
     tl["fade"].update(video_in=0.0, video_out=0.0)
+    tl["transition"] = {"type": "cut", "seconds": 0.6, "align": "center"}
     insert_card(tl, color="#ff0000", seconds=3.0)
     insert_card(tl, color="#0000ff", seconds=3.0)
     return replan(tl)
@@ -69,7 +70,7 @@ def test_cards_are_blank_colour_items_anywhere_in_the_order(tmp_path, cfg):
 def test_crossfade_blends_neighbouring_items_without_changing_length(tmp_path, cfg):
     tl = two_card_month(tmp_path, cfg)
     cuts = render_month(tl, tmp_path, tmp_path / "cut.mp4", encoder="libx264")
-    tl["transition"] = {"type": "fade", "seconds": 1.0}
+    tl["transition"] = {"type": "fade", "seconds": 1.0, "align": "start"}
     fade = render_month(tl, tmp_path, tmp_path / "fade.mp4", encoder="libx264")
     assert duration(fade) == pytest.approx(duration(cuts), abs=0.25)
     # cut: pure red until the cut at 3s; fade: blue starts blending in from 3s to 4s
@@ -83,7 +84,7 @@ def test_crossfade_blends_neighbouring_items_without_changing_length(tmp_path, c
 
 def test_per_item_transition_override(tmp_path, cfg):
     tl = two_card_month(tmp_path, cfg)
-    tl["transition"] = {"type": "fade", "seconds": 1.0}
+    tl["transition"] = {"type": "fade", "seconds": 1.0, "align": "start"}
     tl["items"][0]["transition_out"] = 0  # this join stays a hard cut
     out = render_month(tl, tmp_path, tmp_path / "o.mp4", encoder="libx264")
     assert tuple(frame(out, 3.5, tmp_path)[90, 160]) == pytest.approx((0, 0, 255), abs=25)
@@ -91,7 +92,7 @@ def test_per_item_transition_override(tmp_path, cfg):
 
 def test_wipe_transition_type_works(tmp_path, cfg):
     tl = two_card_month(tmp_path, cfg)
-    tl["transition"] = {"type": "wipeleft", "seconds": 1.0}
+    tl["transition"] = {"type": "wipeleft", "seconds": 1.0, "align": "start"}
     out = render_month(tl, tmp_path, tmp_path / "w.mp4", encoder="libx264")
     row = frame(out, 3.5, tmp_path)[90]
     assert row[:, 0].max() > 200 and row[:, 2].max() > 200  # both colours visible mid-wipe
@@ -148,3 +149,26 @@ def test_music_playlist_swap_and_library(tmp_path, cfg):
     assert [a["file"] for a in tl["audio"]] == [lib_ref]
     out = render_month(tl, month, month / "m.mp4", encoder="libx264")
     assert duration(out) == pytest.approx(tl["total"], abs=0.5)
+
+
+def test_blend_can_be_centered_on_or_end_at_the_cut(tmp_path, cfg):
+    tl = two_card_month(tmp_path, cfg)  # red 0-3s, blue 3-6s, cut at 3s
+    base = render_month(tl, tmp_path, tmp_path / "base.mp4", encoder="libx264")
+    for align, pure_red_at, mix_at, pure_blue_at in [("center", 2.2, 3.0, 3.8), ("end", 1.8, 2.5, 3.2)]:
+        tl["transition"] = {"type": "fade", "seconds": 1.0, "align": align}
+        out = render_month(tl, tmp_path, tmp_path / f"{align}.mp4", encoder="libx264")
+        assert duration(out) == pytest.approx(duration(base), abs=0.25)  # the month never gets longer
+        assert tuple(frame(out, pure_red_at, tmp_path)[90, 160]) == pytest.approx((255, 0, 0), abs=25)
+        mid = frame(out, mix_at, tmp_path)[90, 160]
+        assert 80 < mid[0] < 180 and 80 < mid[2] < 180, (align, mid)
+        assert tuple(frame(out, pure_blue_at, tmp_path)[90, 160]) == pytest.approx((0, 0, 255), abs=25)
+
+
+def test_transition_never_swallows_a_short_item(tmp_path, cfg):
+    tl = two_card_month(tmp_path, cfg)
+    tl["items"][0]["duration"] = 0.6
+    tl["transition"] = {"type": "fade", "seconds": 3.0, "align": "center"}
+    from yearvideo.render import plan_transitions
+
+    (typ, secs), = plan_transitions(tl, [i for i in tl["items"] if i["keep"]])
+    assert typ == "fade" and secs <= 0.6 * 2  # clamped so each item keeps clear time

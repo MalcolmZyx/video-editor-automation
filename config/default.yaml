@@ -1,4 +1,5 @@
-# Global defaults. Each month copies these into its timeline.json, where they can be edited per month.
+# Global defaults for NEW months. Each month copies these into its timeline.json, where they are
+# edited per month. Changing this file never touches months you have already planned.
 output:
   resolution: [1920, 1080]
   fps: 30
@@ -19,13 +20,16 @@ title:
   seconds: 2.5
 
 music:
-  mode: fit             # fit | loop_cut | multi_song | shared_song (see the review UI's (i) help)
+  mode: fit             # fit | loop_cut | multi_song | shared_song | manual (see the editor's (i) help)
   library: null         # optional folder of songs you can pick from, e.g. "D:/Music/Videos"
-beat_sync: snap         # off | snap (nudge cuts onto beats) | on_beat (every cut exactly on a beat)
+beat_sync: snap         # off | snap (gently pull cuts toward beats) | on_beat (cuts exactly on beats)
+beat_strength: 0.6      # snap only: 0 = ignore beats, 1 = land exactly on them. Lower looks more natural.
+beat_every: 1           # use every Nth beat as a cut point (2 or 4 = calmer pacing)
 
 transition:             # between neighbouring photos/clips
-  type: cut             # cut | fade | fadeblack | dissolve | wipeleft | wiperight | slideleft | slideright | circleopen
+  type: fade            # cut | fade | fadeblack | dissolve | wipeleft | wiperight | slideleft | slideright | circleopen ...
   seconds: 0.6
+  align: center         # start = blend begins at the cut | center = cut is the middle | end = blend finishes at the cut
 
 fade:                   # fade to/from a plain colour at the very start/end of the month
   video_in: 0.5
@@ -39,10 +43,20 @@ sound:
   music_volume: 1.0         # 1.0 = unchanged
   video_volume: 0.35        # clip sound level; low so it sits in the background under the music
 
-captions:               # defaults for new captions
+captions:               # defaults for new captions (each caption can override everything)
+  font: ""              # font file name (e.g. "arial.ttf"); empty = default font
   size: 5.5             # text height as % of the frame height
   color: "#ffffff"
+  align: center         # left | center | right (for multi-line text)
+  x: 0.5                # centre of the caption, 0 = left edge ... 1 = right edge of the frame
+  y: 0.9                # 0 = top ... 1 = bottom
+  rotation: 0           # degrees, clockwise
+  wrap_width: 86        # wrap text at this % of the frame width
   background: "#000000"
   background_opacity: 0.45
-  position: bottom      # top | center | bottom
-  fade: 0.3
+  box_padding: 0.4      # in text heights
+  box_radius: 0.4       # rounded corners, in text heights
+  outline_color: "#000000"
+  outline_width: 0      # in % of the text height; 0 = none
+  shadow: false
+  fade: 0.3             # seconds to fade in and out

@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import uuid
 from copy import deepcopy
 from dataclasses import asdict
@@ -122,11 +123,53 @@ def list_songs(month_dir: Path, tl: dict) -> list[dict]:
     return out
 
 
+def ensure_track(tl: dict, month_dir: Path, ref: str) -> dict:
+    """The analysed track for a song, analysing it first if needed (does not touch the playlist)."""
+    for t in tl["tracks"]:
+        if t["file"] == ref:
+            return t
+    t = _analyse_one(month_dir, ref)
+    tl["tracks"].append(t)
+    return t
+
+
 def add_song(tl: dict, month_dir: Path, ref: str) -> dict:
-    if not any(t["file"] == ref for t in tl["tracks"]):
-        tl["tracks"].append(_analyse_one(month_dir, ref))
+    ensure_track(tl, month_dir, ref)
     if ref not in tl["music"]["playlist"]:
         tl["music"]["playlist"].append(ref)
+    return replan(tl)
+
+
+def _layer_defaults(c: dict) -> dict:
+    return {"id": uuid.uuid4().hex[:8], "lane": 1, "volume": 1.0, "fade_in": 0.0, "fade_out": 0.0, **c}
+
+
+def add_layer(tl: dict, month_dir: Path, ref: str, start: float = 0.0) -> dict:
+    """Play another song AT THE SAME TIME as the main music (its own lane in the editor)."""
+    t = ensure_track(tl, month_dir, ref)
+    start = max(0.0, min(start, max(tl.get("total", 0) - 1.0, 0.0)))
+    length = min(t["music_end"] - t["music_start"], max(1.0, tl.get("total", 0) - start))
+    layers = tl["music"].setdefault("layers", [])
+    lane = 1
+    while any(
+        c["lane"] == lane and c["start"] < start + length and start < c["start"] + c["src_out"] - c["src_in"]
+        for c in layers
+    ):
+        lane += 1
+    layers.append(_layer_defaults(
+        {"file": ref, "lane": lane, "start": round(start, 3), "src_in": t["music_start"],
+         "src_out": round(t["music_start"] + length, 3)}
+    ))  # fmt: skip
+    return replan(tl)
+
+
+def to_manual(tl: dict) -> dict:
+    """Turn the automatically planned music into clips you can move, trim and re-time by hand."""
+    tl = replan(tl)
+    tl["music"]["clips"] = [
+        {k: v for k, v in c.items() if k != "auto"} for c in tl["audio_clips"] if c.get("auto")
+    ]
+    tl["music"]["mode"] = "manual"
     return replan(tl)
 
 
@@ -214,12 +257,16 @@ def build_timeline(month_dir: Path, cfg: dict, mode: str | None = None, library:
         "output": cfg["output"],
         "limits": asdict(limits_from(cfg)),
         "beat_sync": cfg.get("beat_sync", "snap"),
+        "beat_strength": cfg.get("beat_strength", 0.6),
+        "beat_every": cfg.get("beat_every", 1),
         **{dst: deepcopy(cfg[src]) for src, dst in SETTINGS.items()},
         "music": {
             "mode": mode or cfg["music"]["mode"],
             "section": 0,
             "offset": 0.0,
             "playlist": [],
+            "layers": [],
+            "clips": [],
             "library": library or cfg["music"].get("library"),
         },
         "tracks": [],
@@ -244,6 +291,8 @@ def _fill_defaults(tl: dict) -> None:
     """Timelines made by older versions get any settings that did not exist yet."""
     cfg = load_config()
     tl.setdefault("beat_sync", cfg["beat_sync"])
+    tl.setdefault("beat_strength", cfg["beat_strength"])
+    tl.setdefault("beat_every", cfg["beat_every"])
     for src, dst in SETTINGS.items():
         tl[dst] = {**cfg[src], **tl.get(dst, {})}
     tl.setdefault("captions", [])
@@ -253,6 +302,11 @@ def _fill_defaults(tl: dict) -> None:
     m.setdefault("offset", 0.0)
     m.setdefault("library", cfg["music"].get("library"))
     m.setdefault("playlist", [t["file"] for t in tl.get("tracks", [])])
+    m.setdefault("layers", [])
+    m.setdefault("clips", [])
+    for c in tl["captions"]:  # captions made before a style option existed get its default
+        for k, v in tl["caption_style"].items():
+            c.setdefault(k, v)
 
 
 def replan(tl: dict) -> dict:
@@ -270,15 +324,29 @@ def replan(tl: dict) -> dict:
     ]
     by_id = {t["id"]: t for t in chosen}
     m = tl["music"]
+    manual = m["mode"] == "manual"
+    override = None
+    if manual:
+        clips0 = [_layer_defaults({**c, "lane": c.get("lane", 0)}) for c in m["clips"]]
+        beats: list[float] = []
+        for c in clips0:
+            t = by_file.get(c["file"])
+            if t and c["lane"] == 0:
+                beats += [c["start"] + b - c["src_in"] for b in t["beats"] if c["src_in"] <= b <= c["src_out"]]
+        if clips0:
+            override = (max(c["start"] + c["src_out"] - c["src_in"] for c in clips0), sorted(beats))
     plan = plan_month(
         items,
         tracks,
-        m["mode"],
+        "fit" if manual else m["mode"],
         Limits(**tl["limits"]),
         offset=m["offset"],
         section=m["section"],
         beat_sync=tl["beat_sync"],
-    )
+        beat_strength=tl["beat_strength"],
+        beat_every=tl["beat_every"],
+        audio_override=override,
+    ) if not (manual and override is None) else plan_month(items, [], "fit", Limits(**tl["limits"]))
     planned = {p.id: p for p in plan.items}
     for i in tl["items"]:
         p = planned.get(i["id"])
@@ -289,12 +357,32 @@ def replan(tl: dict) -> dict:
         {"file": by_id[a.track_id]["file"], "start": a.start, "end": a.end, "fade_out": a.fade_out}
         for a in plan.audio
     ]
+    fade = tl["fade"]
+    clips: list[dict] = []
+    if manual:
+        clips += [_layer_defaults({**c, "lane": c.get("lane", 0)}) for c in m["clips"]]
+    else:
+        pos = 0.0
+        for n, a in enumerate(plan.audio):
+            clips.append({
+                "id": f"auto{n}", "file": by_id[a.track_id]["file"], "lane": 0, "start": round(pos, 3),
+                "src_in": a.start, "src_out": a.end, "volume": 1.0,
+                "fade_in": fade["music_in"] if n == 0 else 0.0,
+                "fade_out": fade["music_out"] if a.fade_out else 0.0, "auto": True,
+            })  # fmt: skip
+            pos += a.end - a.start
+    for c in m["layers"]:
+        clips.append(_layer_defaults(c))
+    tl["audio_clips"] = clips
     tl["total"], tl["fits"], tl["note"] = plan.total, plan.fits, plan.note
     tl["next_offset"] = plan.next_offset
     return tl
 
 
 def save_timeline(tl: dict, path: Path) -> None:
+    """Write the timeline, keeping the previous version next to it as timeline.json.bak."""
+    if path.exists():
+        shutil.copyfile(path, path.with_suffix(path.suffix + ".bak"))
     path.write_text(json.dumps(tl, indent=2), encoding="utf-8")
 
 
