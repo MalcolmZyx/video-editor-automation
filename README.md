@@ -24,37 +24,44 @@ Optional: a separate folder of songs (e.g. `D:\Music\Videos`) that you can pick 
 ## Workflow
 
 ```powershell
-.venv\Scripts\yearvideo review my-year      # editor for all months (month picker at the top)
-.venv\Scripts\yearvideo review my-year\01-January   # or just one month
-.venv\Scripts\yearvideo year   my-year      # plan + render all months, join into year.mp4
+.venv\Scripts\yearvideo review my-year             # editor for all months (month picker at the top)
+.venv\Scripts\yearvideo review my-year\01-January  # or just one month
+.venv\Scripts\yearvideo year   my-year             # plan + render all months, join into year.mp4
+.venv\Scripts\yearvideo rescan my-year\01-January  # pick up added/removed files, keeping every edit
 ```
-`plan` / `replan` / `render` do the same steps from the command line. A month's first edit creates its
-`timeline.json`; `year` never re-plans a month that already has one, so your edits are safe, and it only
-re-renders months you changed. Added files to a month later? Click **Rescan folder** in the editor.
+Your edits live in each month's `timeline.json` (the previous save is kept as `timeline.json.bak`).
+`plan` refuses to overwrite an existing timeline (use `rescan`, or `plan --force` to start over), and `year`
+never re-plans a planned month, so edits are safe. Restored photos, settings, captions and music choices all
+survive a rescan.
 
 ## The editor
-Every setting has an **(i)** button that explains it. Layout:
-- **Month settings** (top): music picker (swap songs, listen with ▶, choose a library folder), lengths, beat sync,
-  transitions, start/end fades, sound levels, caption style.
-- **Storyboard**: every photo/clip in play order. Keep/drop, reorder with ▲▼, fixed length (empty = automatic, shows
-  the current automatic value), per-item fades, per-join transition, colour cards (**+ card**), clip **Trim…**
-  (watch the clip, drag start/end or capture them from the playhead) and per-clip sound.
-- **Dock** (bottom): preview player + timeline (clips, captions, music with beat ticks). **Quick preview** renders a
-  small fast version; click the timeline to jump; add captions at the playhead and drag them / their edges.
+Every setting has an **(i)** button that explains it.
+- **Month settings** (top): music picker (swap songs, listen with ▶, library folder, "Edit music by hand"), lengths,
+  beat sync, transitions, start/end fades, sound levels, new-caption style.
+- **Storyboard**: every photo/clip in play order. Keep/drop, reorder with ▲▼, fixed length (empty = automatic,
+  shows the current automatic value), per-item fades, per-join transition, colour cards (**+ card**), clip
+  **Trim…** and per-clip sound.
+- **Dock** (bottom): **Live preview** (plays your edits instantly - photos, clips, transitions, fades, cards,
+  captions, music), or a rendered preview / final video. The timeline has lanes for clips, captions, the main
+  music and any extra song layers. The right-hand panel edits whatever is selected.
 
-## What the pieces do
-- **Beat sync**: `off`, `snap` (nudge cuts to the nearest beat when lengths allow), `on_beat` (every cut on a beat).
-- **Transitions**: cut, fade (cross-dissolve), wipes, slides... between photos/clips; override any single join.
-- **Month fades**: picture fades from/to a colour at the very start/end of a month; music fade in / fade-out when a
-  song is cut early.
+## Features
+- **Transitions**: cut, fade (cross-dissolve), wipes, slides... between photos/clips. The blend can start at the
+  cut, be centred on it, or end at it. Override any single join.
+- **Beat sync**: `off`, `snap` (cuts pulled toward beats by a strength you choose; ~60% looks natural), or
+  `on_beat` (exact). "Every Nth beat" gives calmer pacing.
+- **Music**: automatic fit (`fit`, `loop_cut`, `multi_song`, `shared_song`), or **manual**: drag/trim every song in
+  the timeline. **Song layers** play a second (third...) song at the same time, each with its own volume/fades.
+- **Sound**: clip sound is off by default; when on it is mixed quietly *under* the music. Music and clip levels are
+  separate (month-wide, plus a multiplier per clip).
 - **Cards**: blank colour cards (optional centred text) anywhere in the order.
-- **Captions**: text over the video for any time range, with fade in/out.
-- **Sound**: clip sound is off by default; when on, it is mixed quietly *under* the music. Music and clip levels
-  are separate (month-wide, plus a multiplier per clip).
-- **Music modes** (Advanced in the music panel): `fit`, `loop_cut`, `multi_song`, `shared_song`.
+- **Captions**: any installed font (with a live preview of each), drag it anywhere on the preview, rotate and resize
+  with handles, outline, shadow, background box, alignment, fades. Extra fonts: drop `.ttf`/`.otf` files into `fonts/`.
+- **Month fades**: picture fades from/to a colour at the very start/end of a month; music fade-in and
+  fade-out-when-cut-early.
 
 ## Settings
-`config/default.yaml` holds the defaults for new months (each month keeps its own copy in `timeline.json`).
+`config/default.yaml` holds the defaults for NEW months (each month keeps its own copy in `timeline.json`).
 
 ## Development
 ```powershell
