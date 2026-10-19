@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .fakedata import generate_month
+from .fakedata import generate_month, make_song
 from .pipeline import (
     build_timeline,
     load_config,
@@ -25,6 +25,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("month_dir", type=Path)
     p.add_argument("--mode", choices=["fit", "loop_cut", "multi_song", "shared_song"])
     p.add_argument("--config", type=Path)
+    p.add_argument("--music-dir", help="folder of songs you can pick from")
     r = sub.add_parser("replan", help="recompute after editing keep/duration/mode in timeline.json")
     r.add_argument("month_dir", type=Path)
     v = sub.add_parser("review", help="open the local review UI for a month")
@@ -49,16 +50,20 @@ def main(argv: list[str] | None = None) -> None:
     if a.cmd == "demo":
         names = ["01-January", "02-February", "03-March", "04-April", "05-May", "06-June"]
         cfg = load_config()
+        lib = a.dir / "_music_library"
+        lib.mkdir(parents=True, exist_ok=True)
+        for k, name in enumerate(["Sunrise", "Road Trip", "Night Drive"]):
+            make_song(lib / f"{name}.wav", music=30.0 + 10 * k, seed=10 + k)
         for n in range(a.months):
             month = a.dir / names[n % len(names)]
             generate_month(month, n_photos=14, n_dupes=3, n_videos=3, seed=n)
-            save_timeline(build_timeline(month, cfg), month / "timeline.json")
+            save_timeline(build_timeline(month, cfg, library=str(lib)), month / "timeline.json")
         print(f"fake year created in {a.dir}")
         print(f"  render it all:  yearvideo year {a.dir}")
-        print(f"  review a month: yearvideo review {a.dir / names[0]}")
+        print(f"  review/edit:    yearvideo review {a.dir}")
         if a.no_review:
             return
-        a.cmd, a.month_dir = "review", a.dir / names[0]
+        a.cmd, a.month_dir = "review", a.dir
     if a.cmd == "review":
         import webbrowser
 
@@ -73,7 +78,7 @@ def main(argv: list[str] | None = None) -> None:
         return
     tl_path = a.month_dir / "timeline.json"
     if a.cmd == "plan":
-        tl = build_timeline(a.month_dir, load_config(a.config), a.mode)
+        tl = build_timeline(a.month_dir, load_config(a.config), a.mode, a.music_dir)
         save_timeline(tl, tl_path)
     elif a.cmd == "replan":
         tl = replan(load_timeline(tl_path))

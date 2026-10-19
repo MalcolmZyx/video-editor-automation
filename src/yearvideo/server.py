@@ -1,6 +1,8 @@
-"""Local review UI for one month: a tiny standard-library web server (no extra dependencies).
+"""Local review/editing UI: a tiny standard-library web server (no extra dependencies).
 
-Binds to 127.0.0.1 only. All edits go through timeline.json via replan().
+Binds to 127.0.0.1 only. Edits go through each month's timeline.json via replan(). POSTs must
+be JSON (a browser page on another site cannot send that without our permission) and the Host
+header must be local, which blocks cross-site and DNS-rebinding tricks.
 """
 
 from __future__ import annotations
@@ -13,27 +15,79 @@ import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlparse
 
 from PIL import Image, ImageOps
 
-from .ingest import find_tool
-from .pipeline import load_timeline, refresh_timeline, replan, save_timeline
+from .ingest import PHOTO_EXT, VIDEO_EXT, find_tool
+from .pipeline import (
+    add_song,
+    build_timeline,
+    insert_card,
+    list_songs,
+    load_config,
+    load_timeline,
+    refresh_timeline,
+    remove_song,
+    replan,
+    save_timeline,
+    song_path,
+)
 from .render import render_month
+from .year import month_folders
 
 UI = Path(__file__).with_name("ui.html")
 THUMB = (320, 180)
+CHUNK = 1 << 20
+
+
+def is_month_dir(d: Path) -> bool:
+    """Is this one month's folder (not a year folder holding several months)?
+
+    True when it has a timeline, media files directly inside, or the usual photos/videos/music
+    sub-folders. Anything else with media further down is treated as a year of month folders.
+    """
+    if (d / "timeline.json").exists():
+        return True
+    if any(f.suffix.lower() in PHOTO_EXT | VIDEO_EXT for f in d.iterdir() if f.is_file()):
+        return True
+    return any((d / n).is_dir() for n in ("photos", "videos", "music", "Photos", "Videos", "Music"))
 
 
 class Review:
+    """One month: its timeline file, thumbnails and render state."""
+
     def __init__(self, month_dir: Path):
         self.dir = month_dir.resolve()
+        self.name = self.dir.name
         self.path = self.dir / "timeline.json"
         self.lock = threading.Lock()
-        self.render_state = {"status": "idle", "error": None}
+        self.render_state = {"status": "idle", "error": None, "preview": False}
+
+    def timeline(self) -> dict:
+        with self.lock:
+            if not self.path.exists():
+                save_timeline(build_timeline(self.dir, load_config()), self.path)
+            return load_timeline(self.path)
+
+    def save(self, tl: dict) -> dict:
+        with self.lock:
+            tl = replan(tl)
+            save_timeline(tl, self.path)
+            return tl
 
     def safe(self, rel: str) -> Path | None:
         p = (self.dir / rel).resolve()
         return p if p.is_file() and self.dir in p.parents else None
+
+    def song(self, ref: str) -> Path | None:
+        """A song file, but only one this month actually lists (month folder or library)."""
+        tl = self.timeline()
+        allowed = {s["file"] for s in list_songs(self.dir, tl)} | {t["file"] for t in tl["tracks"]}
+        if ref not in allowed:
+            return None
+        p = song_path(self.dir, ref)
+        return p if p.is_file() else None
 
     def thumb(self, rel: str, src_in: float = 0.0) -> Path | None:
         src = self.safe(rel)
@@ -44,7 +98,7 @@ class Review:
         if out.exists():
             return out
         out.parent.mkdir(exist_ok=True)
-        if src.suffix.lower() in {".mp4", ".mov", ".m4v", ".mkv", ".avi"}:
+        if src.suffix.lower() in VIDEO_EXT:
             subprocess.run(
                 [find_tool("ffmpeg"), "-y", "-v", "error", "-ss", f"{src_in:.2f}", "-i", str(src),
                  "-frames:v", "1", "-vf", f"scale={THUMB[0]}:-2", str(out)],
@@ -57,22 +111,48 @@ class Review:
                 im.save(out, quality=80)
         return out
 
-    def render(self) -> None:
+    def render(self, preview: bool) -> None:
         def work():
             try:
-                with self.lock:
-                    tl = load_timeline(self.path)
-                render_month(tl, self.dir, self.dir / "month.mp4")
-                self.render_state = {"status": "done", "error": None}
+                tl = self.timeline()
+                name = "month_preview.mp4" if preview else "month.mp4"
+                render_month(tl, self.dir, self.dir / name, preview=preview)
+                self.render_state = {"status": "done", "error": None, "preview": preview}
             except Exception as e:  # noqa: BLE001 - surfaced in the UI
-                self.render_state = {"status": "error", "error": str(e)}
+                self.render_state = {"status": "error", "error": str(e), "preview": preview}
 
         if self.render_state["status"] != "running":
-            self.render_state = {"status": "running", "error": None}
+            self.render_state = {"status": "running", "error": None, "preview": preview}
             threading.Thread(target=work, daemon=True).start()
 
+    def status(self) -> dict:
+        def mt(n: str) -> float | None:
+            f = self.dir / n
+            return f.stat().st_mtime if f.exists() else None
 
-def make_handler(rv: Review):
+        return {
+            **self.render_state,
+            "timeline_mtime": mt("timeline.json"),
+            "final_mtime": mt("month.mp4"),
+            "preview_mtime": mt("month_preview.mp4"),
+        }
+
+
+class App:
+    def __init__(self, root: Path):
+        root = root.resolve()
+        if is_month_dir(root):
+            self.months = {root.name: Review(root)}
+        else:
+            self.months = {d.name: Review(d) for d in month_folders(root)}
+        if not self.months:
+            raise ValueError(f"no month folders with photos/videos found in {root}")
+
+    def get(self, name: str | None) -> Review | None:
+        return self.months.get(name) if name else next(iter(self.months.values()))
+
+
+def make_handler(app: App):
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):  # quiet
             pass
@@ -90,61 +170,128 @@ def make_handler(rv: Review):
             self._send(code, json.dumps(obj).encode(), "application/json")
 
         def _file(self, path: Path):
-            data = path.read_bytes()
+            size = path.stat().st_size
             ctype = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-            rng = re.match(r"bytes=(\d*)-(\d*)", self.headers.get("Range", ""))
-            if rng and (rng.group(1) or rng.group(2)):
-                a = int(rng.group(1) or 0)
-                b = int(rng.group(2)) if rng.group(2) else len(data) - 1
-                b = min(b, len(data) - 1)
-                self._send(206, data[a : b + 1], ctype, {
-                    "Content-Range": f"bytes {a}-{b}/{len(data)}", "Accept-Ranges": "bytes"})  # fmt: skip
-            else:
-                self._send(200, data, ctype, {"Accept-Ranges": "bytes"})
+            m = re.match(r"bytes=(\d*)-(\d*)", self.headers.get("Range", ""))
+            a, b, code = 0, size - 1, 200
+            if m and (m.group(1) or m.group(2)):
+                if m.group(1):
+                    a = int(m.group(1))
+                    b = min(int(m.group(2)), size - 1) if m.group(2) else size - 1
+                else:  # suffix range: last N bytes
+                    a = max(0, size - int(m.group(2)))
+                code = 206
+            if a > b or a >= size:
+                self._send(416, b"", "text/plain", {"Content-Range": f"bytes */{size}"})
+                return
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(b - a + 1))
+            self.send_header("Accept-Ranges", "bytes")
+            if code == 206:
+                self.send_header("Content-Range", f"bytes {a}-{b}/{size}")
+            self.end_headers()
+            try:
+                with path.open("rb") as f:
+                    f.seek(a)
+                    left = b - a + 1
+                    while left > 0:
+                        chunk = f.read(min(CHUNK, left))
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        left -= len(chunk)
+            except (BrokenPipeError, ConnectionResetError):
+                pass  # the browser stopped reading (seeking in a video); not an error
+
+        def _local(self) -> bool:
+            host = (self.headers.get("Host") or "").split(":")[0]
+            return host in ("127.0.0.1", "localhost")
 
         def do_GET(self):
-            from urllib.parse import parse_qs, unquote, urlparse
-
+            if not self._local():
+                return self._send(403, b"", "text/plain")
             u = urlparse(self.path)
             q = parse_qs(u.query)
-            if u.path == "/":
-                self._send(200, UI.read_bytes(), "text/html; charset=utf-8")
-            elif u.path == "/api/timeline":
-                with rv.lock:
-                    self._json(load_timeline(rv.path))
-            elif u.path == "/api/render_status":
-                self._json({**rv.render_state, "has_output": (rv.dir / "month.mp4").exists()})
-            elif u.path.startswith("/thumb/"):
-                t = rv.thumb(unquote(u.path[7:]), float(q.get("t", ["0"])[0]))
-                self._file(t) if t else self._send(404, b"", "text/plain")
-            elif u.path.startswith("/media/"):
-                f = rv.safe(unquote(u.path[7:]))
-                self._file(f) if f else self._send(404, b"", "text/plain")
-            else:
-                self._send(404, b"", "text/plain")
+            rv = app.get(q.get("m", [None])[0])
+            try:
+                if u.path == "/":
+                    self._send(200, UI.read_bytes(), "text/html; charset=utf-8")
+                elif u.path == "/api/months":
+                    self._json([
+                        {"name": n, "has_timeline": r.path.exists(), "has_final": (r.dir / "month.mp4").exists()}
+                        for n, r in app.months.items()
+                    ])  # fmt: skip
+                elif rv is None:
+                    self._send(404, b"", "text/plain")
+                elif u.path == "/api/timeline":
+                    self._json(rv.timeline())
+                elif u.path == "/api/render_status":
+                    self._json(rv.status())
+                elif u.path == "/api/songs":
+                    self._json(list_songs(rv.dir, rv.timeline()))
+                elif u.path == "/song":
+                    f = rv.song(q.get("file", [""])[0])
+                    self._file(f) if f else self._send(404, b"", "text/plain")
+                elif u.path.startswith("/thumb/"):
+                    name, _, rel = unquote(u.path[7:]).partition("/")
+                    r = app.get(name)
+                    t = r.thumb(rel, float(q.get("t", ["0"])[0])) if r else None
+                    self._file(t) if t else self._send(404, b"", "text/plain")
+                elif u.path.startswith("/media/"):
+                    name, _, rel = unquote(u.path[7:]).partition("/")
+                    r = app.get(name)
+                    f = r.safe(rel) if r else None
+                    self._file(f) if f else self._send(404, b"", "text/plain")
+                else:
+                    self._send(404, b"", "text/plain")
+            except Exception as e:  # noqa: BLE001 - report to the browser instead of dropping the connection
+                self._json({"error": str(e)}, 500)
 
         def do_POST(self):
+            if not self._local() or "application/json" not in (self.headers.get("Content-Type") or ""):
+                return self._send(403, b"", "text/plain")
+            u = urlparse(self.path)
+            rv = app.get(parse_qs(u.query).get("m", [None])[0])
             n = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(n) if n else b""
-            if self.path == "/api/timeline":
-                with rv.lock:
-                    tl = replan(json.loads(body))
-                    save_timeline(tl, rv.path)
-                self._json(tl)
-            elif self.path == "/api/refresh":
-                with rv.lock:
-                    tl = refresh_timeline(load_timeline(rv.path), rv.dir)
-                    save_timeline(tl, rv.path)
-                self._json(tl)
-            elif self.path == "/api/render":
-                rv.render()
-                self._json(rv.render_state)
-            else:
-                self._send(404, b"", "text/plain")
+            body = json.loads(self.rfile.read(n) or b"{}") if n else {}
+            if rv is None:
+                return self._send(404, b"", "text/plain")
+            try:
+                if u.path == "/api/timeline":
+                    self._json(rv.save(body))
+                elif u.path == "/api/refresh":
+                    with rv.lock:
+                        tl = refresh_timeline(load_timeline(rv.path), rv.dir)
+                        save_timeline(tl, rv.path)
+                    self._json(tl)
+                elif u.path == "/api/card":
+                    tl = rv.timeline()
+                    self._json(rv.save(insert_card(tl, body.get("after_id"), color=body.get("color"),
+                                                    text=body.get("text", ""), seconds=body.get("seconds"))))  # fmt: skip
+                elif u.path == "/api/music":
+                    tl = body["timeline"] if "timeline" in body else rv.timeline()
+                    act = body["action"]
+                    if act == "add":
+                        ref = body["file"]
+                        if ref not in {s["file"] for s in list_songs(rv.dir, tl)}:
+                            return self._json({"error": "unknown song"}, 400)
+                        tl = add_song(tl, rv.dir, ref)
+                    elif act == "remove":
+                        tl = remove_song(tl, body["file"])
+                    elif act == "library":
+                        tl["music"]["library"] = body.get("library") or None
+                    self._json(rv.save(tl))
+                elif u.path == "/api/render":
+                    rv.render(bool(body.get("preview")))
+                    self._json(rv.status())
+                else:
+                    self._send(404, b"", "text/plain")
+            except Exception as e:  # noqa: BLE001 - report to the browser instead of dropping the connection
+                self._json({"error": str(e)}, 500)
 
     return H
 
 
-def serve(month_dir: Path, port: int = 8765) -> ThreadingHTTPServer:
-    server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(Review(month_dir)))
-    return server
+def serve(root: Path, port: int = 8765) -> ThreadingHTTPServer:
+    return ThreadingHTTPServer(("127.0.0.1", port), make_handler(App(root)))

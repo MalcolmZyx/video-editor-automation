@@ -3,172 +3,655 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Month Review</title>
+<title>Month Editor</title>
 <style>
-  :root { --bg:#14161c; --card:#1f232c; --fg:#eceff4; --mut:#8b93a3; --acc:#5aa9ff; --bad:#ff6b6b; --ok:#5fd38d; }
-  @media (prefers-color-scheme: light) { :root { --bg:#f4f5f7; --card:#fff; --fg:#1b1f27; --mut:#6b7280; } }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg); font:14px system-ui, sans-serif; }
-  header { position:sticky; top:0; z-index:5; background:var(--bg); padding:12px 16px; border-bottom:1px solid #0003;
-           display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
-  header h1 { font-size:16px; margin:0 8px 0 0; }
-  button, select, input { font:inherit; color:inherit; background:var(--card); border:1px solid #8883; border-radius:6px; padding:6px 10px; }
-  button { cursor:pointer; } button.primary { background:var(--acc); color:#fff; border-color:transparent; }
-  #status { color:var(--mut); } .bad { color:var(--bad); } .ok { color:var(--ok); }
-  main { padding:16px; }
-  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:12px; }
-  .card { background:var(--card); border-radius:8px; overflow:hidden; border:1px solid #8883; }
-  .card.off { opacity:.55; }
-  .card img { width:100%; aspect-ratio:16/9; object-fit:cover; display:block; cursor:pointer; background:#000; }
+  :root { --bg:#12141a; --panel:#1b1f27; --card:#232832; --line:#8883; --fg:#eceff4; --mut:#8f98a8;
+          --acc:#5aa9ff; --bad:#ff6b6b; --ok:#5fd38d; --cap:#c58bff; --mus:#f2b84b; }
+  @media (prefers-color-scheme: light) { :root { --bg:#eef0f4; --panel:#fff; --card:#f7f8fa; --fg:#1b1f27; --mut:#667085; } }
+  * { box-sizing:border-box; }
+  html, body { height:100%; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px system-ui, sans-serif; display:flex; flex-direction:column; }
+  button, select, input, textarea { font:inherit; color:inherit; background:var(--card); border:1px solid var(--line); border-radius:6px; padding:5px 9px; }
+  button { cursor:pointer; } button:hover { border-color:var(--acc); }
+  button.primary { background:var(--acc); color:#fff; border-color:transparent; }
+  input[type=number] { width:74px; } input[type=color] { padding:0; width:34px; height:28px; }
+  input[type=range] { padding:0; width:120px; }
+  label { display:inline-flex; gap:6px; align-items:center; }
+  .mut { color:var(--mut); } .bad { color:var(--bad); } .ok { color:var(--ok); }
+
+  header { display:flex; flex-wrap:wrap; gap:10px 18px; align-items:center; padding:10px 16px; background:var(--panel);
+           border-bottom:1px solid var(--line); }
+  header .grp { display:flex; gap:8px; align-items:center; padding-right:18px; border-right:1px solid var(--line); }
+  header .grp:last-child { border:0; margin-left:auto; padding:0; }
+  header h1 { font-size:15px; margin:0; }
+
+  main { flex:1; overflow:auto; padding:14px 16px 28px; }
+  h2 { font-size:13px; letter-spacing:.04em; text-transform:uppercase; color:var(--mut); margin:22px 0 8px; display:flex; gap:10px; align-items:center; }
+  .panels { display:grid; grid-template-columns:repeat(auto-fill, minmax(330px, 1fr)); gap:10px; align-items:start; }
+  details.panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; }
+  details.panel > summary { padding:9px 12px; cursor:pointer; font-weight:600; }
+  .fields { display:grid; gap:9px; padding:4px 12px 12px; }
+  .fields .row { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .fields .row > span:first-child { display:flex; align-items:center; gap:6px; }
+  .i { width:18px; height:18px; padding:0; border-radius:50%; font-size:11px; line-height:16px; text-align:center;
+       color:var(--acc); border-color:var(--acc); background:transparent; flex:none; }
+  #tip { position:fixed; z-index:60; max-width:340px; background:#000d; color:#fff; padding:10px 12px; border-radius:8px;
+         font-size:13px; line-height:1.4; box-shadow:0 6px 24px #0008; display:none; white-space:pre-line; }
+
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(256px, 1fr)); gap:12px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .card.off { opacity:.55; } .card.sel { outline:2px solid var(--acc); }
+  .card .thumb { width:100%; aspect-ratio:16/9; object-fit:cover; display:grid; place-items:center; cursor:pointer; background:#000; color:#fff; font-size:18px; text-align:center; }
   .card .b { padding:8px; display:grid; gap:6px; }
   .name { font-size:12px; color:var(--mut); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .row { display:flex; gap:6px; align-items:center; justify-content:space-between; }
-  .row input[type=number] { width:70px; }
-  .badge { font-size:11px; padding:1px 6px; border-radius:10px; background:#8883; }
-  h2 { font-size:14px; color:var(--mut); margin:24px 0 8px; }
-  video { max-width:100%; margin-top:12px; }
+  .row .lbl { display:flex; gap:5px; align-items:center; font-size:13px; white-space:nowrap; }
+  .row input[type=number] { width:96px; }
+  .badge { font-size:11px; padding:1px 7px; border-radius:10px; background:#8883; white-space:nowrap; }
+  .sub { border-top:1px dashed var(--line); padding-top:6px; display:grid; gap:6px; }
+
+  .songs { display:grid; gap:6px; }
+  .song { display:flex; gap:8px; align-items:center; background:var(--card); border-radius:6px; padding:4px 8px; }
+  .song .n { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .song.in { border-left:3px solid var(--mus); }
+
+  /* ---------- editor dock ---------- */
+  #dock { background:var(--panel); border-top:2px solid var(--line); height:340px; display:grid; grid-template-columns:400px 1fr; grid-template-rows:minmax(0,1fr) auto; min-height:0; }
+  #dock.min { height:44px; }
+  #dock.min #player, #dock.min #tlscroll, #dock.min #inspector { display:none; }
+  #player { padding:8px 10px; display:grid; grid-template-rows:auto 1fr auto; gap:6px; min-height:0; border-right:1px solid var(--line); }
+  #player > * { align-self:start; min-width:0; }
+  #player video { width:100%; aspect-ratio:16/9; background:#000; border-radius:6px; }
+  #player .none { aspect-ratio:16/9; background:#000; border-radius:6px; display:grid; place-items:center; color:#aaa; text-align:center; padding:10px; }
+  #tlwrap { display:grid; grid-template-rows:auto 1fr; min-width:0; min-height:0; }
+  #tlbar { display:flex; gap:8px; align-items:center; padding:8px 10px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  #tlscroll { overflow:auto; position:relative; min-height:0; }
+  #tl { position:relative; margin-left:74px; min-height:100%; }
+  .lane { position:relative; height:44px; border-bottom:1px solid var(--line); }
+  .lane::before { content:attr(data-name); position:absolute; left:-72px; top:0; width:68px; height:100%; display:flex; align-items:center;
+                  font-size:12px; color:var(--mut); }
+  .ruler { height:22px; position:relative; border-bottom:1px solid var(--line); font-size:10px; color:var(--mut); }
+  .tick { position:absolute; top:0; height:100%; border-left:1px solid var(--line); padding-left:3px; }
+  .blk { position:absolute; top:4px; height:36px; border-radius:5px; overflow:hidden; font-size:11px; padding:3px 5px; cursor:pointer;
+         color:#fff; border:1px solid #fff4; white-space:nowrap; text-overflow:ellipsis; }
+  .blk.sel { outline:2px solid #fff; z-index:3; }
+  .blk.cap { background:var(--cap); color:#1b1230; cursor:grab; }
+  .blk .h { position:absolute; top:0; width:7px; height:100%; cursor:ew-resize; background:#0004; }
+  .blk .h.l { left:0; } .blk .h.r { right:0; }
+  .blk.mus { background:var(--mus); color:#2a1d00; cursor:default; }
+  .beat { position:absolute; top:0; width:1px; height:100%; background:#0003; }
+  #playhead { position:absolute; top:0; bottom:0; width:2px; background:var(--bad); z-index:5; pointer-events:none; }
+  #inspector { padding:6px 10px; border-top:1px solid var(--line); display:flex; flex-wrap:wrap; gap:6px 14px; align-items:center; max-height:96px; overflow:auto; }
+  #inspector textarea { width:260px; height:40px; }
+
+  /* ---------- trim modal ---------- */
+  #modal { position:fixed; inset:0; background:#000a; z-index:50; display:none; place-items:center; }
+  #modal .box { background:var(--panel); border-radius:10px; padding:14px; width:min(760px, 94vw); display:grid; gap:10px; }
+  #modal video { width:100%; max-height:48vh; background:#000; border-radius:6px; }
+  #range { position:relative; height:30px; background:var(--card); border-radius:6px; }
+  #range .sel { position:absolute; top:0; bottom:0; background:var(--acc); opacity:.45; border-radius:4px; }
+  #range .ph { position:absolute; top:0; bottom:0; width:2px; background:var(--bad); }
+  #range input { position:absolute; left:0; right:0; width:100%; top:5px; background:none; border:0; pointer-events:none; -webkit-appearance:none; }
+  #range input::-webkit-slider-thumb { pointer-events:auto; }
+  #toast { position:fixed; right:14px; top:14px; z-index:70; background:var(--bad); color:#fff; padding:8px 12px; border-radius:8px; display:none; max-width:420px; }
 </style>
 </head>
 <body>
 <header>
-  <h1 id="title">Month</h1>
-  <label>Music mode
-    <select id="mode"><option>fit</option><option>loop_cut</option><option>multi_song</option><option>shared_song</option></select>
-  </label>
-  <label>Section <input id="section" type="number" min="0" value="0" style="width:60px"></label>
-  <span id="status"></span>
-  <span style="flex:1"></span>
-  <button id="refresh" title="Pick up files added to or removed from the folder">Rescan folder</button>
-  <button id="render" class="primary">Render month</button>
-  <span id="rstatus" class="badge"></span>
+  <div class="grp">
+    <h1>Month Editor</h1>
+    <select id="monthSel" title="Choose the month to edit"></select>
+    <span id="status"></span>
+  </div>
+  <div class="grp">
+    <button id="btnRefresh">Rescan folder</button><button class="i" data-k="rescan">i</button>
+  </div>
+  <div class="grp">
+    <button id="btnPreview">Quick preview</button><button class="i" data-k="preview">i</button>
+    <button id="btnFinal" class="primary">Render final</button><button class="i" data-k="final">i</button>
+    <span id="rstatus" class="badge">idle</span>
+  </div>
 </header>
+
 <main>
-  <details id="settings"><summary>Month settings: fades &amp; video sound</summary>
-    <div class="grid" style="margin-top:8px; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr))">
-      <label>Picture fade in (s) <input data-s="fade.video_in" type="number" step="0.1" min="0"></label>
-      <label>Picture fade out (s) <input data-s="fade.video_out" type="number" step="0.1" min="0"></label>
-      <label>Fade colour <input data-s="fade.color" type="text" style="width:90px"></label>
-      <label>Music fade in (s) <input data-s="fade.music_in" type="number" step="0.1" min="0"></label>
-      <label>Music fade out when cut early (s) <input data-s="fade.music_out" type="number" step="0.1" min="0"></label>
-      <label><input data-s="video_sound.keep_default" type="checkbox"> Keep video sound by default</label>
-      <label>Music level under video sound (0–1) <input data-s="video_sound.duck" type="number" step="0.05" min="0" max="1"></label>
-      <label>Music dip/recover time (s) <input data-s="video_sound.ramp" type="number" step="0.1" min="0.05"></label>
-    </div>
-  </details>
+  <h2>Month settings <button class="i" data-k="settings">i</button></h2>
+  <div class="panels" id="panels"></div>
+
+  <h2>Storyboard <span class="mut" style="text-transform:none;letter-spacing:0">— the order the photos and clips play in</span>
+    <button class="i" data-k="storyboard">i</button>
+    <button id="btnAddCard">+ Colour card at end</button><button class="i" data-k="card">i</button></h2>
   <div id="kept" class="grid"></div>
   <h2 id="dh">Dropped</h2>
   <div id="dropped" class="grid"></div>
-  <div id="out"></div>
+  <div style="height:20px"></div>
 </main>
-<script>
-let tl = null, timer = null;
-const $ = (id) => document.getElementById(id);
-const enc = (s) => s.split('/').map(encodeURIComponent).join('/');
 
-async function load() { tl = await (await fetch('/api/timeline')).json(); draw(); }
-function saveSoon() { clearTimeout(timer); $('status').textContent = 'saving…'; timer = setTimeout(save, 400); }
-async function save() {
-  tl = await (await fetch('/api/timeline', {method:'POST', body: JSON.stringify(tl)})).json();
-  draw();
+<section id="dock">
+  <div id="player"></div>
+  <div id="tlwrap">
+    <div id="tlbar">
+      <button id="btnDock" title="Collapse / expand the editor">⇵</button>
+      <button id="btnAddCap">+ Caption at playhead</button><button class="i" data-k="caption">i</button>
+      <label>Zoom <input id="zoom" type="range" min="1" max="12" step="0.5" value="1"></label>
+      <span id="stale" class="badge" style="display:none"></span>
+      <span class="mut" id="time"></span>
+    </div>
+    <div id="tlscroll"><div id="tl"></div></div>
+  </div>
+  <div id="inspector" style="grid-column:1 / span 2"></div>
+</section>
+
+<div id="modal"><div class="box" id="trimbox"></div></div>
+<div id="tip"></div>
+<div id="toast"></div>
+<audio id="songAudio"></audio>
+
+<script>
+// ------------------------------------------------------------------ help texts
+const INFO = {
+  rescan: "Looks at the month's folder again.\nNew photos, videos or songs you added are picked up (in date order); files you deleted are removed.\nEverything you already decided — kept/dropped, lengths, captions, order — stays exactly as it is.",
+  preview: "Builds a small, fast version (640×360) so you can check timing, transitions and captions in the player below. Not final quality.",
+  final: "Builds the full-quality video for this month at the resolution in your config. The 'year' command joins the finished months into the yearly video.",
+  settings: "These settings belong to this month only. New months start from config/default.yaml.",
+  storyboard: "Every kept photo/clip in playing order. Untick 'keep' to leave something out (it moves to Dropped, where you can bring it back). Use ▲▼ to reorder.",
+  card: "A blank card in any colour (optionally with centred text) that you can put anywhere in the order — for example between two parts of the month.",
+  caption: "Text that sits over the video for the time range you choose. Click '+ Caption at playhead', then drag its purple block in the timeline to move it or drag its edges to make it longer or shorter.",
+  photo_len: "Shortest and longest time a photo may be shown. When items have no fixed length, the editor picks lengths inside this range so the month fits the music.",
+  video_len: "Shortest and longest a video clip may play. Longer clips are cut down to their best moment (sharp, moving, not dark). You can set the exact start and end yourself with Trim.",
+  card_len: "How long a new colour card shows by default.",
+  beat_sync: "Off: lengths are spread evenly, ignoring the beat.\nSnap: each cut is nudged to the nearest beat when that keeps everything inside the length limits.\nOn beat: every cut lands exactly on a beat, so photos last a whole number of beats (the next cut after any fixed-length item re-syncs to the beat).",
+  transition: "How one photo/clip changes into the next. 'cut' = instant. 'fade' = the next picture gradually appears over the previous one. Others slide or wipe. You can override the transition for any single join in the storyboard. The blend starts on the cut point, so the new picture is fully visible a moment later.",
+  transition_s: "How long the blend takes. It can't be longer than the next clip.",
+  fade_video: "Fades the picture up from (and back down to) a plain colour at the very start and end of the month, so months don't hard-cut into each other in the yearly video. This is NOT between photos — use Transition for that. 0 = off.",
+  fade_color: "The colour used for the month-start / month-end fade (and for any single-item fade you set on a card). Black is typical; white looks airy.",
+  music_in: "At the beginning of the month the music starts silent and rises to full volume over this many seconds. 0 = music starts at full volume.",
+  music_out: "When a song is stopped before it ends on its own (cut short, or the month finishes mid-song), the music fades out over this many seconds instead of stopping abruptly. Songs that end naturally aren't touched.",
+  keep_sound: "Keep the original sound recorded in your video clips. You can override this for each clip (the 'sound' dropdown on its card).",
+  music_vol: "Loudness of the music. 100% = unchanged. The music is never lowered when a clip's own sound plays — clip sound is mixed underneath it.",
+  video_vol: "Loudness of clip sound (relative to the original). It stays low by default so it acts as background sound under the music. Each clip also has its own volume multiplier.",
+  cap_style: "Starting look for NEW captions: text size (% of frame height), colour, background box, position and fade time. You can change each caption individually afterwards.",
+  playlist: "The songs this month plays, in order. Use ▶ to listen. Remove a song or add another from the list below, then the month is re-planned to fit.",
+  library: "Optional: a folder on your computer with lots of songs (for example D:/Music/Videos). Songs in it appear in 'Songs available' so you can pick one without copying files into the month's folder.",
+  mode: "How songs are fitted to the month's length.\n\nfit — use ONE song from where the real music starts to where it ends (skipping silent intro and trailing quiet). Works when the month's photos/clips naturally add up to about that length.\n\nloop_cut — use only the first section of the song (e.g. through the first chorus), fade it out, and add another song if the month is longer.\n\nmulti_song — play several songs back to back until the month is filled.\n\nshared_song — use part of a song and continue it in the next month.",
+  section: "Only used by loop_cut. The song is divided into sections (verse, chorus...). 0 = stop after the first section, 1 = after the second, and so on.",
+  keep_item: "Untick to leave this out of the video. It stays in the Dropped list so you can restore it.",
+  len_item: "How long this shows. Empty = automatic: the editor chooses so the month fits the music (within your Lengths settings). The grey text shows what it is using right now.",
+  trim: "Opens the clip so you can pick exactly where it starts and ends while watching it. 'Auto' = the editor picks the best moment for you.",
+  sound_item: "default: follow the month setting. keep: play this clip's own sound quietly under the music. mute: no clip sound. The number multiplies the clip's loudness.",
+  fade_item: "Fade this item in from / out to the fade colour (seconds). Empty = automatic: only the first item of the month fades in and only the last fades out. Ignored where a cross-fade/transition already blends two items.",
+  trans_item: "How THIS item changes into the next one. 'default' follows the month's Transition setting. Choose cut for a hard cut here.",
+};
+
+const TRANSITIONS = ['cut','fade','fadeblack','fadewhite','dissolve','wipeleft','wiperight','wipeup','wipedown','slideleft','slideright','circleopen','circleclose','pixelize','radial'];
+const SETTINGS = [
+  { title:'Lengths', rows:[
+    ['limits.photo_min','Photo shortest (s)','number',{step:.5,min:.5},'photo_len'],
+    ['limits.photo_max','Photo longest (s)','number',{step:.5,min:.5},'photo_len'],
+    ['limits.video_min','Clip shortest (s)','number',{step:.5,min:.5},'video_len'],
+    ['limits.video_max','Clip longest (s)','number',{step:.5,min:.5},'video_len'],
+    ['card.seconds','New card length (s)','number',{step:.5,min:.5},'card_len'] ]},
+  { title:'Beat sync', rows:[ ['beat_sync','Cuts follow the beat','select',['off','snap','on_beat'],'beat_sync'] ]},
+  { title:'Transitions between items', rows:[
+    ['transition.type','Style','select',TRANSITIONS,'transition'],
+    ['transition.seconds','Length (s)','number',{step:.1,min:.1,max:3},'transition_s'] ]},
+  { title:'Month start / end fades', rows:[
+    ['fade.video_in','Picture fade in (s)','number',{step:.1,min:0},'fade_video'],
+    ['fade.video_out','Picture fade out (s)','number',{step:.1,min:0},'fade_video'],
+    ['fade.color','Fade colour','color',{},'fade_color'],
+    ['fade.music_in','Music fade in (s)','number',{step:.1,min:0},'music_in'],
+    ['fade.music_out','Music fade out when cut short (s)','number',{step:.1,min:0},'music_out'] ]},
+  { title:'Sound levels', rows:[
+    ['sound.keep_video_sound','Keep video sound by default','checkbox',{},'keep_sound'],
+    ['sound.music_volume','Music volume','range',{min:0,max:1.5,step:.05},'music_vol'],
+    ['sound.video_volume','Video sound volume','range',{min:0,max:1.5,step:.05},'video_vol'] ]},
+  { title:'New caption style', rows:[
+    ['caption_style.size','Text size (% of height)','number',{step:.5,min:2,max:15},'cap_style'],
+    ['caption_style.color','Text colour','color',{},'cap_style'],
+    ['caption_style.background','Box colour','color',{},'cap_style'],
+    ['caption_style.background_opacity','Box opacity (0-1)','number',{step:.05,min:0,max:1},'cap_style'],
+    ['caption_style.position','Position','select',['top','center','bottom'],'cap_style'],
+    ['caption_style.fade','Fade (s)','number',{step:.1,min:0},'cap_style'] ]},
+];
+
+// ------------------------------------------------------------------ state + helpers
+let availOpen = false, tl = null, months = [], cur = null, songs = [], sel = null, stat = {}, playerMode = 'preview', saving = null;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const enc = (s) => s.split('/').map(encodeURIComponent).join('/');
+const fmt = (x) => (x == null ? '—' : (Math.round(x * 10) / 10).toFixed(1));
+const i = (k) => `<button class="i" data-k="${k}" title="What is this?">i</button>`;
+const getp = (o, p) => p.split('.').reduce((a, k) => (a == null ? a : a[k]), o);
+const setp = (o, p, v) => { const ks = p.split('.'); const last = ks.pop(); ks.reduce((a, k) => a[k], o)[last] = v; };
+const hex = (c) => /^#[0-9a-f]{6}$/i.test(c) ? c : ({black:'#000000', white:'#ffffff'}[String(c).toLowerCase()] || '#000000');
+
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 6000); }
+async function api(path, body) {
+  const url = path + (path.includes('?') ? '&' : '?') + 'm=' + encodeURIComponent(cur);
+  const r = await fetch(url, body === undefined ? {} : { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+  const j = await r.json();
+  if (j && j.error) { toast(j.error); throw new Error(j.error); }
+  return j;
+}
+function saveSoon() { clearTimeout(saving); $('status').textContent = 'saving…'; saving = setTimeout(save, 350); }
+async function save() { tl = await api('/api/timeline', tl); drawAll(); }
+
+// info popovers
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('.i');
+  const tip = $('tip');
+  if (b && INFO[b.dataset.k]) {
+    const r = b.getBoundingClientRect();
+    tip.textContent = INFO[b.dataset.k];
+    tip.style.display = 'block';
+    tip.style.left = Math.min(r.left, innerWidth - 360) + 'px';
+    const below = r.bottom + 6 + tip.offsetHeight < innerHeight;
+    tip.style.top = (below ? r.bottom + 6 : Math.max(8, r.top - 6 - tip.offsetHeight)) + 'px';
+    e.stopPropagation();
+  } else if (!e.target.closest('#tip')) tip.style.display = 'none';
+}, true);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { $('tip').style.display = 'none'; closeTrim(); } });
+
+// ------------------------------------------------------------------ loading
+async function init() {
+  months = await (await fetch('/api/months')).json();
+  const sel_ = $('monthSel');
+  sel_.innerHTML = months.map(m => `<option>${esc(m.name)}</option>`).join('');
+  sel_.onchange = () => loadMonth(sel_.value);
+  $('btnRefresh').onclick = async () => { tl = await api('/api/refresh', {}); songs = await api('/api/songs'); drawAll(); };
+  $('btnPreview').onclick = () => startRender(true);
+  $('btnFinal').onclick = () => startRender(false);
+  $('btnAddCard').onclick = async () => { tl = await api('/api/card', {}); drawAll(); };
+  $('btnAddCap').onclick = addCaptionAtPlayhead;
+  $('btnDock').onclick = () => $('dock').classList.toggle('min');
+  $('zoom').oninput = drawTimeline;
+  await loadMonth(months[0].name);
+  if (location.hash === '#smoke') smoke();
+  if (location.hash === '#trim') openTrim(tl.items.find(x => x.kind === 'video'));
+}
+async function loadMonth(name) {
+  cur = name; $('monthSel').value = name; sel = null;
+  tl = await api('/api/timeline');
+  songs = await api('/api/songs');
+  await pollStatus(true);
+  drawAll();
+}
+function drawAll() {
+  $('status').className = tl.fits ? 'ok' : 'bad';
+  $('status').textContent = `${fmt(tl.total)}s · ${tl.fits ? 'fits the music' : tl.note}${tl.fits && tl.note ? ' · ' + tl.note : ''}`;
+  drawPanels(); drawStoryboard(); drawPlayer(); drawTimeline(); drawInspector();
 }
 
+// ------------------------------------------------------------------ settings panels
+function drawPanels() {
+  const open = new Set([...document.querySelectorAll('#panels details[open]')].map(d => d.dataset.t));
+  const html = [musicPanel(open)];
+  for (const p of SETTINGS) {
+    html.push(`<details class="panel" data-t="${esc(p.title)}" ${open.has(p.title) ? 'open' : ''}><summary>${esc(p.title)}</summary><div class="fields">` +
+      p.rows.map(([path, label, type, opt, key]) => {
+        const v = getp(tl, path);
+        let inp;
+        if (type === 'select') inp = `<select data-p="${path}">${opt.map(o => `<option ${o === v ? 'selected' : ''}>${o}</option>`).join('')}</select>`;
+        else if (type === 'checkbox') inp = `<input type="checkbox" data-p="${path}" ${v ? 'checked' : ''}>`;
+        else if (type === 'color') inp = `<input type="color" data-p="${path}" value="${hex(v)}">`;
+        else if (type === 'range') inp = `<input type="range" data-p="${path}" min="${opt.min}" max="${opt.max}" step="${opt.step}" value="${v}"><span class="mut" style="width:42px">${Math.round(v * 100)}%</span>`;
+        else inp = `<input type="number" data-p="${path}" ${Object.entries(opt).map(([k, x]) => `${k}="${x}"`).join(' ')} value="${v ?? ''}">`;
+        return `<div class="row"><span>${esc(label)} ${i(key)}</span><span>${inp}</span></div>`;
+      }).join('') + `</div></details>`);
+  }
+  $('panels').innerHTML = html.join('');
+  document.querySelectorAll('#panels [data-p]').forEach(el => {
+    el.onchange = () => {
+      const t = el.type;
+      setp(tl, el.dataset.p, t === 'checkbox' ? el.checked : (t === 'number' || t === 'range') ? parseFloat(el.value) : el.value);
+      saveSoon();
+    };
+  });
+  bindMusic();
+}
+
+function musicPanel(open) {
+  const names = Object.fromEntries(tl.tracks.map(t => [t.file, t]));
+  const play = tl.music.playlist;
+  const inList = (f) => play.includes(f);
+  const dur = (f) => names[f] ? fmt(names[f].music_end - names[f].music_start) + 's' : '';
+  return `<details class="panel" data-t="Music" ${open.has('Music') || !open.size ? 'open' : ''} style="grid-column:span 2"><summary>Music</summary><div class="fields">
+    <div class="row"><span><b>This month's songs, in order</b> ${i('playlist')}</span></div>
+    <div class="songs" id="playlist">${play.length ? play.map((f, n) => `<div class="song in">
+        <button data-sp="${esc(f)}" title="Listen">▶</button><span class="n" title="${esc(f)}">${esc(f.split('/').pop())}</span>
+        <span class="mut">${dur(f)}</span>
+        <button data-pm="${n}:-1">▲</button><button data-pm="${n}:1">▼</button><button data-pr="${esc(f)}" title="Remove from this month">✕</button></div>`).join('')
+      : '<span class="mut">No songs yet — this month will be photos/clips with no music. Add one below.</span>'}</div>
+    <details id="availBox" ${availOpen ? 'open' : ''}><summary><b>Choose another song</b> <span class="mut">(${songs.length} available)</span> ${i('library')}</summary>
+    <div class="songs" id="avail">${songs.map(s => `<div class="song ${inList(s.file) ? 'in' : ''}">
+        <button data-sp="${esc(s.file)}" title="Listen">▶</button><span class="n" title="${esc(s.file)}">${esc(s.name)}</span>
+        <span class="badge">${s.source}</span>
+        ${inList(s.file) ? '<span class="mut">in use</span>' : `<button data-pa="${esc(s.file)}">Use this</button>`}</div>`).join('') || '<span class="mut">No songs found in the month\'s music folder or the library folder.</span>'}</div>
+    <div class="row"><span>Library folder ${i('library')}</span>
+      <span><input id="libPath" type="text" style="width:210px" placeholder="e.g. D:/Music/Videos" value="${esc(tl.music.library || '')}"><button id="libSet">Set</button></span></div>
+    </details>
+    <details><summary class="mut">Advanced: how songs fit the month ${i('mode')}</summary>
+      <div class="row" style="margin-top:8px"><span>Mode ${i('mode')}</span><select data-p="music.mode">${['fit','loop_cut','multi_song','shared_song'].map(o => `<option ${o === tl.music.mode ? 'selected' : ''}>${o}</option>`).join('')}</select></div>
+      <div class="row" style="margin-top:8px"><span>Section (loop_cut) ${i('section')}</span><input type="number" min="0" data-p="music.section" value="${tl.music.section}"></div>
+    </details></div></details>`;
+}
+function bindMusic() {
+  const audio = $('songAudio');
+  const ab = $('availBox'); if (ab) ab.ontoggle = () => { availOpen = ab.open; };
+  document.querySelectorAll('[data-sp]').forEach(b => b.onclick = () => {
+    const src = `/song?m=${encodeURIComponent(cur)}&file=${encodeURIComponent(b.dataset.sp)}`;
+    if (audio.dataset.src === src && !audio.paused) { audio.pause(); b.textContent = '▶'; return; }
+    document.querySelectorAll('[data-sp]').forEach(x => x.textContent = '▶');
+    audio.src = src; audio.dataset.src = src; audio.play(); b.textContent = '⏸';
+  });
+  document.querySelectorAll('[data-pa]').forEach(b => b.onclick = async () => { tl = await api('/api/music', { action:'add', file:b.dataset.pa, timeline:tl }); songs = await api('/api/songs'); drawAll(); });
+  document.querySelectorAll('[data-pr]').forEach(b => b.onclick = async () => { tl = await api('/api/music', { action:'remove', file:b.dataset.pr, timeline:tl }); drawAll(); });
+  document.querySelectorAll('[data-pm]').forEach(b => b.onclick = () => {
+    const [n, d] = b.dataset.pm.split(':').map(Number), p = tl.music.playlist;
+    if (n + d < 0 || n + d >= p.length) return;
+    [p[n], p[n + d]] = [p[n + d], p[n]]; saveSoon();
+  });
+  const set = $('libSet');
+  if (set) set.onclick = async () => { tl.music.library = $('libPath').value.trim() || null; tl = await api('/api/music', { action:'library', library:tl.music.library, timeline:tl }); songs = await api('/api/songs'); drawAll(); };
+}
+
+// ------------------------------------------------------------------ storyboard
+const keptIdx = () => tl.items.map((it, n) => it.keep ? n : -1).filter(n => n >= 0);
+function autoFade(idx, which) {
+  const k = keptIdx(); const pos = k.indexOf(idx);
+  if (which === 'in') return pos === 0 ? tl.fade.video_in : 0;
+  return pos === k.length - 1 ? tl.fade.video_out : 0;
+}
 function card(it, idx) {
-  const sim = (tl.similar_groups || []).findIndex(g => g.includes(it.id));
   const d = document.createElement('div');
-  d.className = 'card' + (it.keep ? '' : ' off');
-  if (it.kind === 'title') {
-    d.innerHTML = `<div class="b"><div class="row"><b>Title card</b><span class="badge">title</span></div>
-      <input value="${it.text}" data-f="text"><div class="row"><span>seconds</span>
-      <input type="number" step="0.5" min="0.5" value="${it.duration_override ?? ''}" data-f="ov"></div></div>`;
+  d.className = 'card' + (it.keep ? '' : ' off') + (sel && sel.type === 'item' && sel.id === it.id ? ' sel' : '');
+  d.dataset.id = it.id;
+  const dur = it.duration;
+  const lenInp = `<input type="number" step="0.5" min="0.5" data-f="ov" placeholder="auto ${fmt(dur)}" value="${it.duration_override ?? ''}">`;
+  const sim = (tl.similar_groups || []).findIndex(g => g.includes(it.id));
+  let head;
+  if (it.kind === 'card') {
+    head = `<div class="thumb" data-f="sel" style="background:${esc(it.color)};color:${esc(it.text_color)}">${esc(it.text || 'colour card')}</div>`;
   } else {
     const t = it.kind === 'video' ? `?t=${it.src_in || 0}` : '';
-    d.innerHTML = `<img loading="lazy" src="/thumb/${enc(it.id)}${t}" title="open full size">
-      <div class="b"><div class="name" title="${it.id}">${it.id}</div>
-      <div class="row"><label><input type="checkbox" data-f="keep" ${it.keep ? 'checked' : ''}> keep</label>
-        <span class="badge">${it.kind}${it.duration ? ' · ' + it.duration.toFixed(1) + 's' : ''}</span></div>
-      <div class="row"><span>length</span><input type="number" step="0.5" min="0.5" placeholder="auto"
-        value="${it.duration_override ?? ''}" data-f="ov"></div>
-      ${it.kind === 'video' ? `<div class="row"><span>start at</span><input type="number" step="0.5" min="0"
-        value="${(it.src_in || 0).toFixed(1)}" data-f="in"></div>` : ''}
-      ${it.kind === 'video' && it.has_audio ? `<div class="row"><span>sound</span>
-        <select data-f="snd"><option value="">default</option><option value="1" ${it.keep_audio === true ? 'selected' : ''}>keep</option>
-        <option value="0" ${it.keep_audio === false ? 'selected' : ''}>mute</option></select>
-        <input type="number" step="0.1" min="0" style="width:60px" title="clip volume" value="${it.audio_volume ?? 1}" data-f="vol"></div>` : ''}
-      <div class="row"><span>fade in/out</span><span><input type="number" step="0.1" min="0" style="width:68px"
-        placeholder="auto" value="${it.fade_in ?? ''}" data-f="fin"> <input type="number" step="0.1" min="0"
-        style="width:68px" placeholder="auto" value="${it.fade_out ?? ''}" data-f="fout"></span></div>
-      ${it.drop_reason ? `<div class="name bad">${it.drop_reason}</div>` : ''}
-      ${sim >= 0 ? `<div class="name">similar group ${sim + 1}</div>` : ''}
-      ${it.keep ? `<div class="row"><button data-f="up">▲</button><button data-f="down">▼</button></div>` : ''}</div>`;
-    d.querySelector('img').onclick = () => window.open('/media/' + enc(it.id));
+    head = `<img class="thumb" data-f="sel" loading="lazy" src="/thumb/${encodeURIComponent(cur)}/${enc(it.id)}${t}">`;
   }
+  const defTrans = `default (${tl.transition.type}${tl.transition.type === 'cut' ? '' : ' ' + tl.transition.seconds + 's'})`;
+  const last = keptIdx().slice(-1)[0] === idx;
+  d.innerHTML = `${head}<div class="b">
+    <div class="row"><div class="name" title="${esc(it.id)}">${it.kind === 'card' ? 'Colour card' : esc(it.id)}</div>
+      <span class="badge">${it.kind}${dur ? ' · ' + fmt(dur) + 's' : ''}</span></div>
+    ${it.kind === 'card' ? `
+      <div class="row"><span class="lbl">Colour <input type="color" data-f="color" value="${hex(it.color)}"> Text colour <input type="color" data-f="tcolor" value="${hex(it.text_color)}"></span></div>
+      <input type="text" data-f="text" placeholder="optional centred text" value="${esc(it.text || '')}">` : `
+      <div class="row"><label class="lbl"><input type="checkbox" data-f="keep" ${it.keep ? 'checked' : ''}> keep ${i('keep_item')}</label></div>`}
+    <div class="row"><span class="lbl">length ${i('len_item')}</span>${lenInp}</div>
+    ${it.kind === 'video' ? `<div class="sub">
+      <div class="row"><span class="lbl">plays ${fmt(it.src_in)}–${fmt((it.src_in || 0) + (dur || 0))}s of ${fmt(it.source_duration)}s ${i('trim')}</span>
+        <button data-f="trim">Trim…</button></div>
+      ${it.src_in_auto ? '<div class="name">auto: best moment chosen for you</div>' : '<div class="name">set by you</div>'}
+      ${it.has_audio ? `<div class="row"><span class="lbl">sound ${i('sound_item')}</span><span>
+        <select data-f="snd"><option value="">default (${tl.sound.keep_video_sound ? 'keep' : 'mute'})</option>
+        <option value="1" ${it.keep_audio === true ? 'selected' : ''}>keep</option><option value="0" ${it.keep_audio === false ? 'selected' : ''}>mute</option></select>
+        <input type="number" step="0.1" min="0" style="width:66px" title="volume multiplier" data-f="vol" value="${it.audio_volume ?? 1}"></span></div>` : '<div class="name">this clip has no sound</div>'}
+    </div>` : ''}
+    <div class="sub">
+      <div class="row"><span class="lbl">fade in/out ${i('fade_item')}</span><span>
+        <input type="number" step="0.1" min="0" style="width:82px" data-f="fin" placeholder="auto ${autoFade(idx, 'in')}" value="${it.fade_in ?? ''}">
+        <input type="number" step="0.1" min="0" style="width:82px" data-f="fout" placeholder="auto ${autoFade(idx, 'out')}" value="${it.fade_out ?? ''}"></span></div>
+      ${last ? '' : `<div class="row"><span class="lbl">then → ${i('trans_item')}</span><span>
+        <select data-f="ttype" style="max-width:118px"><option value="">${defTrans}</option>${TRANSITIONS.map(t => `<option ${it.transition_type === t ? 'selected' : ''}>${t}</option>`).join('')}</select>
+        <input type="number" step="0.1" min="0" style="width:82px" data-f="tsec" placeholder="auto ${tl.transition.seconds}" value="${it.transition_out ?? ''}"></span></div>`}
+    </div>
+    ${it.drop_reason ? `<div class="name bad">${esc(it.drop_reason)}</div>` : ''}
+    ${sim >= 0 ? `<div class="name">similar group ${sim + 1}</div>` : ''}
+    ${it.keep ? `<div class="row"><span><button data-f="up">▲</button> <button data-f="down">▼</button></span>
+      <span><button data-f="addcard" title="Insert a colour card after this">+ card</button>${it.kind === 'card' ? ' <button data-f="del" title="Remove this card">✕</button>' : ''}</span></div>` : ''}
+  </div>`;
   d.querySelectorAll('[data-f]').forEach(el => {
     const f = el.dataset.f;
-    el.onchange = el.onclick = (e) => {
+    const num = () => el.value === '' ? null : parseFloat(el.value);
+    if (f === 'sel') { el.onclick = () => selectItem(it.id, true); return; }
+    el.onclick = async (e) => {
+      if (el.tagName !== 'BUTTON') return;
+      if (f === 'trim') return openTrim(it);
+      if (f === 'addcard') { tl = await api('/api/card', { after_id: it.id }); return drawAll(); }
+      if (f === 'del') { tl.items = tl.items.filter(x => x.id !== it.id); return saveSoon(); }
+      const k = keptIdx(), pos = k.indexOf(idx), j = k[pos + (f === 'up' ? -1 : 1)];
+      if (j === undefined) return;
+      [tl.items[idx], tl.items[j]] = [tl.items[j], tl.items[idx]]; saveSoon();
+    };
+    el.onchange = () => {
+      if (el.tagName === 'BUTTON') return;
       if (f === 'keep') it.keep = el.checked;
-      else if (f === 'ov') it.duration_override = el.value === '' ? null : parseFloat(el.value);
-      else if (f === 'in') { it.src_in = parseFloat(el.value) || 0; it.src_in_auto = false; }
-      else if (f === 'text') it.text = el.value;
+      else if (f === 'ov') it.duration_override = num();
       else if (f === 'snd') it.keep_audio = el.value === '' ? null : el.value === '1';
-      else if (f === 'vol') it.audio_volume = el.value === '' ? 1 : parseFloat(el.value);
-      else if (f === 'fin') it.fade_in = el.value === '' ? null : parseFloat(el.value);
-      else if (f === 'fout') it.fade_out = el.value === '' ? null : parseFloat(el.value);
-      else if (f === 'up' || f === 'down') {
-        if (e.type !== 'click') return;
-        const j = idx + (f === 'up' ? -1 : 1);
-        if (j < 0 || j >= tl.items.length) return;
-        [tl.items[idx], tl.items[j]] = [tl.items[j], tl.items[idx]];
-      } else return;
-      if (el.tagName === 'BUTTON' || e.type === 'change') saveSoon();
+      else if (f === 'vol') it.audio_volume = num() ?? 1;
+      else if (f === 'fin') it.fade_in = num();
+      else if (f === 'fout') it.fade_out = num();
+      else if (f === 'ttype') it.transition_type = el.value || null;
+      else if (f === 'tsec') it.transition_out = num();
+      else if (f === 'text') it.text = el.value;
+      else if (f === 'color') it.color = el.value;
+      else if (f === 'tcolor') it.text_color = el.value;
+      saveSoon();
     };
   });
   return d;
 }
-
-function draw() {
-  $('title').textContent = tl.month;
-  fillSettings();
-  $('mode').value = tl.music.mode; $('section').value = tl.music.section;
-  const s = $('status');
-  s.className = tl.fits ? 'ok' : 'bad';
-  s.textContent = `${tl.total.toFixed(1)}s · ${tl.fits ? 'fits the music' : tl.note}`;
-  $('kept').replaceChildren(...tl.items.map((it, i) => it.keep ? card(it, i) : null).filter(Boolean));
-  const dropped = tl.items.map((it, i) => it.keep ? null : card(it, i)).filter(Boolean);
+function drawStoryboard() {
+  $('kept').replaceChildren(...tl.items.map((it, n) => it.keep ? card(it, n) : null).filter(Boolean));
+  const dropped = tl.items.map((it, n) => it.keep ? null : card(it, n)).filter(Boolean);
   $('dh').textContent = `Dropped (${dropped.length}) — tick “keep” to restore`;
   $('dropped').replaceChildren(...dropped);
 }
 
-document.querySelectorAll('[data-s]').forEach(el => {
-  el.onchange = () => {
-    const [grp, key] = el.dataset.s.split('.');
-    tl[grp][key] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? parseFloat(el.value) : el.value;
-    saveSoon();
-  };
-});
-function fillSettings() {
-  document.querySelectorAll('[data-s]').forEach(el => {
-    const [grp, key] = el.dataset.s.split('.');
-    const v = (tl[grp] || {})[key];
-    if (el.type === 'checkbox') el.checked = !!v; else el.value = v ?? '';
-  });
+// ------------------------------------------------------------------ player + render
+function playerUrl() {
+  const f = playerMode === 'preview' ? 'month_preview.mp4' : 'month.mp4';
+  const mt = playerMode === 'preview' ? stat.preview_mtime : stat.final_mtime;
+  return mt ? `/media/${encodeURIComponent(cur)}/${f}?v=${mt}` : null;
 }
-$('mode').onchange =() => { tl.music.mode = $('mode').value; saveSoon(); };
-$('section').onchange = () => { tl.music.section = parseInt($('section').value) || 0; saveSoon(); };
-$('refresh').onclick = async () => {
-  tl = await (await fetch('/api/refresh', {method:'POST'})).json(); draw();
-};
-$('render').onclick = async () => {
-  await save(); await fetch('/api/render', {method:'POST'}); poll();
-};
-async function poll() {
-  const r = await (await fetch('/api/render_status')).json();
-  $('rstatus').textContent = r.status === 'error' ? 'error: ' + r.error : r.status;
-  if (r.status === 'running') setTimeout(poll, 1500);
-  if (r.status === 'done' || (r.status === 'idle' && r.has_output)) {
-    $('out').innerHTML = `<h2>Rendered month</h2><video controls src="/media/month.mp4?${Date.now()}"></video>`;
+function drawPlayer() {
+  const url = playerUrl(), p = $('player'), old = p.querySelector('video');
+  const keepTime = old ? old.currentTime : 0, wasSrc = old ? old.dataset.src : null;
+  if (old && wasSrc === url) { drawStale(); return; }
+  p.innerHTML = `<div class="row"><span>
+      <label><input type="radio" name="pm" value="preview" ${playerMode === 'preview' ? 'checked' : ''}> Preview</label>
+      <label><input type="radio" name="pm" value="final" ${playerMode === 'final' ? 'checked' : ''}> Final</label></span>
+      <span class="mut" id="time">0.0s</span></div>
+    ${url ? `<video id="vid" controls data-src="${url}" src="${url}"></video>` : `<div class="none">No ${playerMode} video yet.<br>Click “${playerMode === 'preview' ? 'Quick preview' : 'Render final'}” at the top.</div>`}
+    <div class="mut" style="font-size:12px">The timeline on the right matches this video. Click it to jump.</div>`;
+  p.querySelectorAll('[name=pm]').forEach(r => r.onchange = () => { playerMode = r.value; drawPlayer(); });
+  const v = $('vid');
+  if (v) { v.onloadedmetadata = () => { v.currentTime = Math.min(keepTime, v.duration || 0); }; v.ontimeupdate = movePlayhead; v.onseeked = movePlayhead; }
+  drawStale();
+}
+function drawStale() {
+  const mt = playerMode === 'preview' ? stat.preview_mtime : stat.final_mtime;
+  const s = $('stale');
+  if (mt && stat.timeline_mtime && stat.timeline_mtime > mt + 0.5) { s.style.display = ''; s.textContent = 'video is out of date — render again to see your latest edits'; s.className = 'badge bad'; }
+  else s.style.display = 'none';
+}
+async function startRender(preview) {
+  await save();
+  playerMode = preview ? 'preview' : 'final';
+  stat = await api('/api/render', { preview });
+  $('rstatus').textContent = 'rendering…';
+  pollStatus();
+}
+async function pollStatus(quiet) {
+  stat = await api('/api/render_status');
+  const r = $('rstatus');
+  r.textContent = stat.status === 'error' ? 'error' : stat.status === 'running' ? 'rendering…' : stat.status;
+  if (stat.status === 'error') toast('Render failed: ' + stat.error);
+  if (stat.status === 'running') setTimeout(() => pollStatus(), 1200);
+  else if (!quiet) { drawPlayer(); }
+}
+
+// ------------------------------------------------------------------ timeline
+const total = () => Math.max(tl.total || 1, 1);
+const pps = () => Math.max(($('tlscroll').clientWidth - 90) / total(), 4) * parseFloat($('zoom').value);
+const vid = () => $('vid');
+function monthBeats() {
+  const out = []; let pos = 0; const byFile = Object.fromEntries(tl.tracks.map(t => [t.file, t]));
+  for (const a of tl.audio) {
+    const t = byFile[a.file]; if (t) for (const b of t.beats) if (b >= a.start && b <= a.end) out.push(pos + b - a.start);
+    pos += a.end - a.start;
+  }
+  return out;
+}
+function drawTimeline() {
+  const W = total() * pps(), host = $('tl');
+  host.style.width = W + 'px';
+  let ticks = '';
+  const step = [1, 2, 5, 10, 15, 30, 60, 120].find(s => s * pps() >= 60) || 120;
+  for (let t = 0; t <= total(); t += step) ticks += `<div class="tick" style="left:${t * pps()}px">${Math.floor(t / 60)}:${String(Math.round(t % 60)).padStart(2, '0')}</div>`;
+  const kept = tl.items.filter(x => x.keep && x.duration);
+  const clips = kept.map(it => {
+    const bg = it.kind === 'card' ? esc(it.color) : it.kind === 'video' ? '#2d6cdf' : '#3a8f6b';
+    const fg = it.kind === 'card' ? `color:${esc(it.text_color)}` : '';
+    const label = it.kind === 'card' ? (it.text || 'card') : it.id.split('/').pop();
+    return `<div class="blk ${sel && sel.type === 'item' && sel.id === it.id ? 'sel' : ''}" data-ci="${esc(it.id)}" style="left:${it.start * pps()}px;width:${Math.max(it.duration * pps() - 2, 3)}px;background:${bg};${fg}" title="${esc(label)} · ${fmt(it.duration)}s">${esc(label)}</div>`;
+  }).join('');
+  const caps = tl.captions.map(c => `<div class="blk cap ${sel && sel.type === 'cap' && sel.id === c.id ? 'sel' : ''}" data-cap="${c.id}" style="left:${c.start * pps()}px;width:${Math.max((c.end - c.start) * pps(), 8)}px"><span class="h l" data-h="l"></span>${esc(c.text)}<span class="h r" data-h="r"></span></div>`).join('');
+  let pos = 0;
+  const mus = tl.audio.map(a => { const w = (a.end - a.start) * pps(), l = pos * pps(); pos += a.end - a.start;
+    return `<div class="blk mus" style="left:${l}px;width:${w - 2}px">${esc(a.file.split('/').pop())}${a.fade_out ? ' (fades out)' : ''}</div>`; }).join('');
+  const beats = monthBeats(); const maxBeats = 900;
+  const bt = beats.length <= maxBeats ? beats.map(b => `<div class="beat" style="left:${b * pps()}px"></div>`).join('') : '';
+  host.innerHTML = `<div class="ruler" id="ruler">${ticks}</div>
+    <div class="lane" data-name="Clips" id="laneC">${clips}</div>
+    <div class="lane" data-name="Captions" id="laneT">${caps}</div>
+    <div class="lane" data-name="Music" id="laneM">${bt}${mus}</div><div id="playhead"></div>`;
+  host.querySelectorAll('[data-ci]').forEach(b => b.onclick = () => selectItem(b.dataset.ci, false, true));
+  host.querySelectorAll('[data-cap]').forEach(b => b.onpointerdown = (e) => capDrag(e, b));
+  const seek = (e) => { const r = host.getBoundingClientRect(); const t = Math.max(0, Math.min(total(), (e.clientX - r.left) / pps())); if (vid()) vid().currentTime = t; else movePlayhead(t); };
+  $('ruler').onclick = seek;
+  $('laneM').onclick = seek;
+  $('laneT').ondblclick = (e) => { if (e.target.id === 'laneT') { const r = host.getBoundingClientRect(); addCaption((e.clientX - r.left) / pps()); } };
+  movePlayhead();
+}
+function movePlayhead(t) {
+  const time = typeof t === 'number' ? t : (vid() ? vid().currentTime : 0);
+  const ph = $('playhead'); if (ph) ph.style.left = time * pps() + 'px';
+  const el = $('time'); if (el) el.textContent = time.toFixed(1) + 's / ' + total().toFixed(1) + 's';
+}
+const playhead = () => (vid() ? vid().currentTime : 0);
+function selectItem(id, fromCard, seekTo) {
+  sel = { type:'item', id };
+  const it = tl.items.find(x => x.id === id);
+  if (it && it.start != null && vid() && (seekTo || fromCard)) vid().currentTime = it.start;
+  drawStoryboardSel(); drawTimeline(); drawInspector();
+  if (!fromCard) { const c = document.querySelector(`.card[data-id="${CSS.escape(id)}"]`); if (c) c.scrollIntoView({ block:'nearest', behavior:'smooth' }); }
+}
+function drawStoryboardSel() { document.querySelectorAll('.card').forEach(c => c.classList.toggle('sel', !!sel && sel.type === 'item' && c.dataset.id === sel.id)); }
+
+// ------------------------------------------------------------------ captions
+function addCaption(at) {
+  const c = { id: Math.random().toString(16).slice(2, 10), text: 'New caption', start: Math.max(0, at), end: Math.min(total(), at + 3), ...tl.caption_style };
+  if (c.end - c.start < 0.5) { c.start = Math.max(0, total() - 3); c.end = total(); }
+  tl.captions.push(c); sel = { type:'cap', id:c.id }; saveSoon();
+}
+function addCaptionAtPlayhead() { addCaption(playhead()); }
+function capDrag(e, el) {
+  const c = tl.captions.find(x => x.id === el.dataset.cap); if (!c) return;
+  sel = { type:'cap', id:c.id }; drawInspector();
+  document.querySelectorAll('[data-cap]').forEach(b => b.classList.toggle('sel', b === el));
+  const mode = e.target.dataset.h || 'm', x0 = e.clientX, s0 = c.start, e0 = c.end, p = pps();
+  el.setPointerCapture(e.pointerId);
+  el.onpointermove = (ev) => {
+    const dt = (ev.clientX - x0) / p;
+    if (mode === 'm') { const len = e0 - s0; c.start = Math.max(0, Math.min(total() - len, s0 + dt)); c.end = c.start + len; }
+    else if (mode === 'l') c.start = Math.max(0, Math.min(e0 - 0.3, s0 + dt));
+    else c.end = Math.min(total(), Math.max(s0 + 0.3, e0 + dt));
+    el.style.left = c.start * p + 'px'; el.style.width = Math.max((c.end - c.start) * p, 8) + 'px';
+  };
+  el.onpointerup = () => { el.onpointermove = el.onpointerup = null; saveSoon(); };
+}
+function drawInspector() {
+  const box = $('inspector');
+  if (!sel) { box.innerHTML = '<span class="mut">Select a clip or caption in the timeline to edit it. Double-click the Captions row (or press “+ Caption at playhead”) to add a caption.</span>'; return; }
+  if (sel.type === 'cap') {
+    const c = tl.captions.find(x => x.id === sel.id); if (!c) { sel = null; return drawInspector(); }
+    box.innerHTML = `<b>Caption</b><textarea data-c="text">${esc(c.text)}</textarea>
+      <label>start <input type="number" step="0.1" min="0" data-c="start" value="${c.start.toFixed(2)}"></label><button data-now="start">= playhead</button>
+      <label>end <input type="number" step="0.1" min="0" data-c="end" value="${c.end.toFixed(2)}"></label><button data-now="end">= playhead</button>
+      <label>position <select data-c="position">${['top','center','bottom'].map(o => `<option ${o === c.position ? 'selected' : ''}>${o}</option>`).join('')}</select></label>
+      <label>size <input type="number" step="0.5" min="2" max="15" data-c="size" value="${c.size}"></label>
+      <label>text <input type="color" data-c="color" value="${hex(c.color)}"></label>
+      <label>box <input type="color" data-c="background" value="${hex(c.background)}"></label>
+      <label>opacity <input type="number" step="0.05" min="0" max="1" data-c="background_opacity" value="${c.background_opacity}"></label>
+      <label>fade <input type="number" step="0.1" min="0" data-c="fade" value="${c.fade}"></label>
+      <button data-del>Delete caption</button>`;
+    box.querySelectorAll('[data-c]').forEach(el => el.onchange = () => {
+      const k = el.dataset.c; c[k] = (el.type === 'number') ? parseFloat(el.value) : el.value; saveSoon();
+    });
+    box.querySelectorAll('[data-now]').forEach(b => b.onclick = () => { c[b.dataset.now] = +playhead().toFixed(2); saveSoon(); });
+    box.querySelector('[data-del]').onclick = () => { tl.captions = tl.captions.filter(x => x.id !== c.id); sel = null; saveSoon(); };
+  } else {
+    const it = tl.items.find(x => x.id === sel.id); if (!it) { sel = null; return drawInspector(); }
+    box.innerHTML = `<b>${it.kind === 'card' ? 'Colour card' : esc(it.id)}</b>
+      <span class="mut">starts at ${fmt(it.start)}s · lasts ${fmt(it.duration)}s</span>
+      ${it.kind === 'video' ? '<button data-trim>Trim…</button>' : ''}
+      <button data-capitem>Add caption over this item</button>`;
+    const t = box.querySelector('[data-trim]'); if (t) t.onclick = () => openTrim(it);
+    box.querySelector('[data-capitem]').onclick = () => { const c = { id: Math.random().toString(16).slice(2, 10), text: 'New caption', start: it.start, end: it.start + it.duration, ...tl.caption_style }; tl.captions.push(c); sel = { type:'cap', id:c.id }; saveSoon(); };
   }
 }
-load(); poll();
+
+// ------------------------------------------------------------------ trim modal
+let trimItem = null;
+function openTrim(it) {
+  trimItem = it;
+  const src = it.source_duration || 0, a0 = it.src_in || 0, b0 = Math.min(src, a0 + (it.duration || 3));
+  $('trimbox').innerHTML = `<div class="row"><b>Trim ${esc(it.id.split('/').pop())}</b><button id="trimX">✕</button></div>
+    <video id="tv" controls src="/media/${encodeURIComponent(cur)}/${enc(it.id)}"></video>
+    <div id="range"><div class="sel" id="rsel"></div><div class="ph" id="rph"></div>
+      <input type="range" id="rA" min="0" max="${src}" step="0.1" value="${a0}"><input type="range" id="rB" min="0" max="${src}" step="0.1" value="${b0}"></div>
+    <div class="row"><span><label>starts at <input type="number" id="nA" step="0.1" min="0" max="${src}" value="${a0.toFixed(1)}"></label>
+      <button id="setA">= current time</button></span>
+      <span><label>ends at <input type="number" id="nB" step="0.1" min="0" max="${src}" value="${b0.toFixed(1)}"></label>
+      <button id="setB">= current time</button></span>
+      <span class="mut" id="tlen"></span></div>
+    <div class="row"><span><button id="playSel">▶ Play selection</button> <button id="auto">Use auto (best moment)</button> ${i('trim')}</span>
+      <span><button id="trimOk" class="primary">Save</button></span></div>`;
+  const A = $('rA'), B = $('rB'), nA = $('nA'), nB = $('nB'), tv = $('tv');
+  const upd = (from) => {
+    let a = parseFloat(from === 'n' ? nA.value : A.value) || 0, b = parseFloat(from === 'n' ? nB.value : B.value) || 0;
+    if (b - a < 0.3) { if (from === 'B' || from === 'nb') a = Math.max(0, b - 0.3); else b = Math.min(src, a + 0.3); }
+    A.value = nA.value = a.toFixed(1); B.value = nB.value = b.toFixed(1);
+    $('rsel').style.left = (a / src * 100) + '%'; $('rsel').style.width = ((b - a) / src * 100) + '%';
+    $('tlen').textContent = 'plays ' + (b - a).toFixed(1) + 's';
+  };
+  A.oninput = () => { upd('A'); tv.currentTime = parseFloat(A.value); };
+  B.oninput = () => { upd('B'); tv.currentTime = parseFloat(B.value); };
+  nA.onchange = () => upd('n'); nB.onchange = () => upd('nb');
+  $('setA').onclick = () => { nA.value = tv.currentTime.toFixed(1); upd('n'); };
+  $('setB').onclick = () => { nB.value = tv.currentTime.toFixed(1); upd('nb'); };
+  $('playSel').onclick = () => { tv.currentTime = parseFloat(A.value); tv.play(); };
+  tv.ontimeupdate = () => { $('rph').style.left = (tv.currentTime / src * 100) + '%'; if (!tv.paused && tv.currentTime >= parseFloat(B.value)) tv.pause(); };
+  $('trimX').onclick = closeTrim;
+  $('auto').onclick = () => { it.src_in_auto = true; it.duration_override = null; closeTrim(); saveSoon(); };
+  $('trimOk').onclick = () => { it.src_in = parseFloat(A.value); it.src_in_auto = false; it.duration_override = +(parseFloat(B.value) - parseFloat(A.value)).toFixed(2); closeTrim(); saveSoon(); };
+  upd('A'); $('modal').style.display = 'grid';
+}
+function closeTrim() { const v = $('tv'); if (v) v.pause(); $('modal').style.display = 'none'; $('trimbox').innerHTML = ''; trimItem = null; }
+$('modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeTrim(); });
+
+// ------------------------------------------------------------------ smoke test hook (used by automated checks)
+async function smoke() {
+  const log = [];
+  try {
+    const first = tl.items.find(x => x.keep && x.kind !== 'card');
+    selectItem(first.id, false, false); log.push('select');
+    addCaption(1); await save(); log.push('caption:' + tl.captions.length);
+    const v = tl.items.find(x => x.kind === 'video'); if (v) { openTrim(v); log.push('trim:' + ($('modal').style.display)); closeTrim(); }
+    document.querySelector('.i').click(); log.push('tip:' + $('tip').style.display);
+    log.push('cards:' + document.querySelectorAll('#kept .card').length);
+  } catch (e) { log.push('ERR ' + e.message); }
+  document.title = 'SMOKE ' + log.join(' | ');
+}
+init();
 </script>
 </body>
 </html>
