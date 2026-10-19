@@ -39,7 +39,7 @@ def test_plan_review_replan_render(tmp_path, cfg):
     photo["duration_override"] = 4.0
     tl = replan(tl)
     assert next(i for i in tl["items"] if i["id"] == photo["id"])["duration"] == 4.0
-    assert sum(1 for i in tl["items"] if i["keep"]) == 14
+    assert sum(1 for i in tl["items"] if i["keep"]) == 13
     save_timeline(tl, tmp_path / "timeline.json")
 
     out = render_month(tl, tmp_path, tmp_path / "month.mp4", encoder="libx264")

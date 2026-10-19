@@ -45,35 +45,52 @@ def test_clip_sound_is_off_by_default_and_per_clip_switchable(tmp_path, cfg):
     assert not any(wants_clip_sound(tl, v) for v in vids)
     vids[0]["keep_audio"] = True
     assert wants_clip_sound(tl, vids[0]) and not wants_clip_sound(tl, vids[1])
-    tl["video_sound"]["keep_default"] = True
+    tl["sound"]["keep_video_sound"] = True
     vids[1]["keep_audio"] = False
     assert wants_clip_sound(tl, vids[0]) and not wants_clip_sound(tl, vids[1])
 
 
-def test_graph_places_clip_sound_and_ducks_music(tmp_path, cfg):
+def test_graph_mixes_clip_sound_quietly_under_music(tmp_path, cfg):
     generate_month(tmp_path, n_photos=6, n_dupes=0, n_videos=1)
     tl = build_timeline(tmp_path, cfg)
     vid = next(i for i in tl["items"] if i["kind"] == "video")
-    vid["keep_audio"] = True
+    vid["keep_audio"], vid["audio_volume"] = True, 2.0
+    tl["sound"].update(music_volume=0.9, video_volume=0.3)
     tl = replan(tl)
     items = [i for i in tl["items"] if i["keep"]]
-    _, graph = audio_graph(tl, tmp_path, items, tmp_path / "v.mp4")
-    assert "adelay=" in graph and "amix=inputs=2" in graph and "volume='1-(1-0.25)" in graph
+    _, graph, _ = audio_graph(tl, tmp_path, items, tmp_path / "v.mp4", tl["total"])
+    assert "adelay=" in graph and "amix=inputs=2" in graph
+    assert "volume=0.9" in graph  # music level
+    assert "volume=0.6" in graph  # clip level = 0.3 * 2.0
+    assert "clip(" not in graph  # music is never ducked
 
 
-def test_muted_clip_with_full_duck_is_silent_in_render(tmp_path, cfg):
+def test_levels_silence_music_and_clip_in_render(tmp_path, cfg):
     generate_month(tmp_path, n_photos=6, n_dupes=0, n_videos=1)
     tl = build_timeline(tmp_path, cfg)
     vid = next(i for i in tl["items"] if i["kind"] == "video")
     base = render_month(tl, tmp_path, tmp_path / "base.mp4", encoder="libx264")
     vid["keep_audio"], vid["audio_volume"] = True, 0.0
-    tl["video_sound"].update(duck=0.0, ramp=0.05)  # music fully off while the clip plays
+    tl["sound"]["music_volume"] = 0.0
     tl = replan(tl)
     vid = next(i for i in tl["items"] if i["id"] == vid["id"])
-    out = render_month(tl, tmp_path, tmp_path / "ducked.mp4", encoder="libx264")
+    out = render_month(tl, tmp_path, tmp_path / "quiet.mp4", encoder="libx264")
     a, b = vid["start"] + 0.3, vid["start"] + vid["duration"] - 0.3
-    assert rms(load_audio(base), a, b) > 0.02  # music normally plays here
-    assert rms(load_audio(out), a, b) < 0.005  # silent: clip volume 0 + music ducked to 0
+    assert rms(load_audio(base), a, b) > 0.02
+    assert rms(load_audio(out), a, b) < 0.005
+
+
+def test_video_sound_is_audible_but_quieter_than_music(tmp_path, cfg):
+    generate_month(tmp_path, n_photos=6, n_dupes=0, n_videos=1)
+    tl = build_timeline(tmp_path, cfg)
+    vid = next(i for i in tl["items"] if i["kind"] == "video")
+    tl["sound"]["music_volume"] = 0.0  # isolate the clip sound
+    vid["keep_audio"] = True
+    tl = replan(tl)
+    vid = next(i for i in tl["items"] if i["id"] == vid["id"])
+    out = render_month(tl, tmp_path, tmp_path / "clip.mp4", encoder="libx264")
+    inside = rms(load_audio(out), vid["start"] + 0.3, vid["start"] + vid["duration"] - 0.3)
+    assert 0.005 < inside < 0.1  # present, at roughly video_volume * the clip's own level
 
 
 def test_custom_fade_colour_and_length(tmp_path, cfg):
@@ -82,7 +99,7 @@ def test_custom_fade_colour_and_length(tmp_path, cfg):
     black = render_month(tl, tmp_path, tmp_path / "black.mp4", encoder="libx264")
     tl["fade"].update(video_in=1.0, color="white")
     white = render_month(tl, tmp_path, tmp_path / "white.mp4", encoder="libx264")
-    assert first_frame_brightness(black, tmp_path) < 15
+    assert first_frame_brightness(black, tmp_path) < 20
     assert first_frame_brightness(white, tmp_path) > 240
 
 

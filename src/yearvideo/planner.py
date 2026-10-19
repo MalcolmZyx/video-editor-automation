@@ -96,6 +96,53 @@ def distribute(bounds: list[tuple[float, float]], budget: float) -> list[float]:
     return d
 
 
+def _snap_to_beats(durs: list[float], bounds: list[tuple[float, float]], beats: list[float]) -> None:
+    """Nudge cuts to the nearest beat where both neighbours stay within their limits."""
+    for k in range(len(durs) - 1):
+        cut = sum(durs[: k + 1])
+        delta = _nearest(beats, cut) - cut
+        a, b = bounds[k], bounds[k + 1]
+        if (
+            a[0] != a[1]
+            and b[0] != b[1]
+            and a[0] <= durs[k] + delta <= a[1]
+            and b[0] <= durs[k + 1] - delta <= b[1]
+        ):
+            durs[k] += delta
+            durs[k + 1] -= delta
+
+
+def _on_beat(
+    bounds: list[tuple[float, float]], durs: list[float], beats: list[float], total: float
+) -> list[float]:
+    """Put every cut exactly on a beat (photo lengths become whole numbers of beats).
+
+    Items with a fixed length keep it, so the next flexible item re-syncs to the beat grid.
+    The remaining items must still be able to fill the rest of the music.
+    """
+    n = len(bounds)
+    suffix_lo = [sum(b[0] for b in bounds[k:]) for k in range(n + 1)]
+    suffix_hi = [sum(b[1] for b in bounds[k:]) for k in range(n + 1)]
+    out: list[float] = []
+    cum = 0.0
+    for k, (lo, hi) in enumerate(bounds):
+        if k == n - 1:
+            out.append(total - cum)
+            break
+        if lo == hi:
+            out.append(lo)
+            cum += lo
+            continue
+        e_min = max(cum + lo, total - suffix_hi[k + 1])
+        e_max = min(cum + hi, total - suffix_lo[k + 1])
+        ideal = cum + durs[k]
+        cands = [b for b in beats if e_min - 1e-9 <= b <= e_max + 1e-9]
+        end = _nearest(cands, ideal) if cands else min(max(ideal, e_min), max(e_min, e_max))
+        out.append(end - cum)
+        cum = end
+    return out
+
+
 def _build_audio(
     tracks: list[Track], mode: str, lo: float, hi: float, offset: float, section: int
 ) -> tuple[list[AudioSegment], float, str]:
@@ -159,13 +206,21 @@ def plan_month(
     limits: Limits | None = None,
     offset: float = 0.0,
     section: int = 0,
+    beat_sync: str = "snap",
 ) -> MonthPlan:
     lim = limits or Limits()
     kept = [i for i in items if i.keep]
-    if not kept or not tracks:
+    if not kept:
         return MonthPlan([], [], 0.0, False, "nothing to plan")
 
     bounds = [_bounds(i, lim) for i in kept]
+    if not tracks:  # photos-only month: use the middle of every length range
+        durs = [(lo + hi) / 2 for lo, hi in bounds]
+        planned, t = [], 0.0
+        for item, d in zip(kept, durs, strict=True):
+            planned.append(PlannedItem(item.id, round(t, 3), round(d, 3)))
+            t += d
+        return MonthPlan(planned, [], round(t, 3), True, "no music selected")
     lo, hi = sum(b[0] for b in bounds), sum(b[1] for b in bounds)
     audio, total, note = _build_audio(tracks, mode, lo, hi, offset, section)
 
@@ -180,7 +235,6 @@ def plan_month(
 
     durs = distribute(bounds, total)
 
-    # Snap interior cut points to beats where doing so keeps both neighbours in bounds.
     month_beats: list[float] = []
     pos = 0.0
     for seg in audio:
@@ -188,20 +242,10 @@ def plan_month(
         month_beats += [pos + (b - seg.start) for b in t.beats if seg.start <= b <= seg.end]
         pos += seg.end - seg.start
     month_beats.sort()
-    if month_beats:
-        for k in range(len(durs) - 1):
-            cut = sum(durs[: k + 1])
-            snapped = _nearest(month_beats, cut)
-            delta = snapped - cut
-            a, b = bounds[k], bounds[k + 1]
-            if (
-                a[0] != a[1]
-                and b[0] != b[1]
-                and a[0] <= durs[k] + delta <= a[1]
-                and b[0] <= durs[k + 1] - delta <= b[1]
-            ):
-                durs[k] += delta
-                durs[k + 1] -= delta
+    if month_beats and beat_sync == "on_beat":
+        durs = _on_beat(bounds, durs, month_beats, total)
+    elif month_beats and beat_sync == "snap":
+        _snap_to_beats(durs, bounds, month_beats)
 
     planned, t = [], 0.0
     for item, d in zip(kept, durs, strict=True):

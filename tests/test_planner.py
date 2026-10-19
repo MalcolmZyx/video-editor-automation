@@ -80,3 +80,30 @@ def test_video_never_longer_than_source():
     plan = plan_month(items, [track(end=19.0)], "fit")  # 15s
     v = plan.items[0]
     assert v.duration <= 3.0
+
+
+def test_on_beat_puts_every_cut_on_a_beat():
+    t = track(end=64.0, step=0.75)  # 60s of music, beats every 0.75s
+    plan = plan_month(photos(20), [t], "fit", beat_sync="on_beat")
+    assert plan.fits
+    beats = [b - 4.0 for b in t.beats]
+    for p in plan.items[1:]:
+        assert min(abs(p.start - b) for b in beats) < 0.002
+    assert plan.items[-1].start + plan.items[-1].duration == pytest.approx(60.0, abs=0.01)
+    assert all(2.0 - 1e-6 <= p.duration <= 5.0 + 1e-6 for p in plan.items[:-1])
+
+
+def test_on_beat_resyncs_after_a_fixed_length_item():
+    items = photos(12)
+    items[2].duration_override = 3.1  # not a multiple of the beat
+    t = track(end=44.0, step=0.5)  # 40s of music for 12 photos: plenty of slack
+    plan = plan_month(items, [t], "fit", beat_sync="on_beat")
+    beats = [b - 4.0 for b in t.beats]
+    after = plan.items[4]  # a later cut is back on the grid
+    assert min(abs(after.start - b) for b in beats) < 0.002
+
+
+def test_photos_only_month_has_no_music_but_plans():
+    plan = plan_month(photos(10), [], "fit")
+    assert plan.fits and plan.audio == []
+    assert plan.total == pytest.approx(35.0)  # midpoint 3.5s each

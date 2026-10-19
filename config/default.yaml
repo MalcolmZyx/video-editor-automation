@@ -1,25 +1,48 @@
-# Global defaults. Per-month and per-item overrides live in each month's timeline.json.
+# Global defaults. Each month copies these into its timeline.json, where they can be edited per month.
 output:
   resolution: [1920, 1080]
   fps: 30
+
 photo:
-  min_seconds: 2.0
-  max_seconds: 5.0
+  min_seconds: 2.0      # shortest a photo may be shown
+  max_seconds: 5.0      # longest a photo may be shown
 video:
-  max_seconds: 8.0      # clips are trimmed to this unless overridden
-  min_seconds: 1.5
+  min_seconds: 1.5      # shortest a video clip may be shown
+  max_seconds: 8.0      # clips longer than this are cut down to their best moment
+
+card:                   # blank colour cards you add anywhere in the order
+  seconds: 2.0
+  color: "#14161c"
+  text_color: "#f0f0f0"
 title:
-  enabled: true
+  enabled: false        # optional automatic month-name card at the start of each month
   seconds: 2.5
-fade:                   # month start/end fades (per-item fades can be set in the review UI)
-  video_in: 0.5         # seconds, picture fades up from `color` at the start of the month
-  video_out: 0.5        # seconds, picture fades to `color` at the end of the month
-  color: black          # any ffmpeg colour name, e.g. black, white
-  music_in: 0.0         # seconds of music fade-in at the start of the month (0 = none)
-  music_out: 3.0        # seconds of music fade-out when a song is cut early (loop_cut etc.)
-video_sound:
-  keep_default: false   # keep the original sound of video clips unless a clip says otherwise
-  duck: 0.25            # music loudness (0-1) while a clip's own sound plays
-  ramp: 0.3             # seconds the music takes to dip and recover
+
 music:
-  mode: fit             # fit | loop_cut | multi_song | shared_song
+  mode: fit             # fit | loop_cut | multi_song | shared_song (see the review UI's (i) help)
+  library: null         # optional folder of songs you can pick from, e.g. "D:/Music/Videos"
+beat_sync: snap         # off | snap (nudge cuts onto beats) | on_beat (every cut exactly on a beat)
+
+transition:             # between neighbouring photos/clips
+  type: cut             # cut | fade | fadeblack | dissolve | wipeleft | wiperight | slideleft | slideright | circleopen
+  seconds: 0.6
+
+fade:                   # fade to/from a plain colour at the very start/end of the month
+  video_in: 0.5
+  video_out: 0.5
+  color: black          # any ffmpeg colour name or #rrggbb
+  music_in: 0.0         # music fades up from silence at the start of the month
+  music_out: 3.0        # music fades out when a song is stopped early (instead of ending on its own)
+
+sound:
+  keep_video_sound: false   # keep the original sound of video clips (override per clip)
+  music_volume: 1.0         # 1.0 = unchanged
+  video_volume: 0.35        # clip sound level; low so it sits in the background under the music
+
+captions:               # defaults for new captions
+  size: 5.5             # text height as % of the frame height
+  color: "#ffffff"
+  background: "#000000"
+  background_opacity: 0.45
+  position: bottom      # top | center | bottom
+  fade: 0.3
