@@ -66,19 +66,57 @@ def test_overlapping_layers_get_their_own_lanes(tmp_path, cfg):
     assert [layer["lane"] for layer in tl["music"]["layers"]] == [1, 2, 1]
 
 
-def test_manual_music_can_be_edited_and_sets_the_month_length(tmp_path, cfg):
-    month, _, tl = month_with_library(tmp_path, cfg)
-    auto_total = tl["total"]
+def test_manual_music_keeps_the_month_length_until_you_change_it(tmp_path, cfg):
+    month, lib, tl = month_with_library(tmp_path, cfg)
+    ref = str((lib / "second.wav").resolve().as_posix())
+    tl = add_layer(tl, month, ref, start=10.0)  # a layer exists before switching to manual
+    before = tl["total"]
     tl = to_manual(tl)
-    assert tl["music"]["mode"] == "manual" and not any(c.get("auto") for c in tl["audio_clips"])
-    clip = tl["music"]["clips"][0]
-    clip["src_out"] = clip["src_in"] + 25.0  # shorten the song by hand
-    tl = replan(tl)
-    assert tl["total"] == pytest.approx(25.0, abs=0.05) and tl["total"] < auto_total
-    clip["start"] = 2.0  # slide it later: the month grows to cover it
-    assert replan(tl)["total"] == pytest.approx(27.0, abs=0.05)
+    m = tl["music"]
+    assert m["mode"] == "manual" and not any(c.get("auto") for c in tl["audio_clips"])
+    assert m["layers"] == [] and len(m["clips"]) == 2  # layers were merged into the manual clips
+    assert tl["total"] == pytest.approx(before, abs=0.05)
+
+    main = next(c for c in m["clips"] if c["lane"] == 0)
+    main["start"] = 5.0  # slide the song later: the MONTH does not stretch
+    assert replan(tl)["total"] == pytest.approx(before, abs=0.05)
+    main["src_out"] = main["src_in"] + 12.0  # shorten the song: still the same length
+    assert replan(tl)["total"] == pytest.approx(before, abs=0.05)
+
+    m["manual_length"] = None  # follow the music instead
+    expected = max(c["start"] + c["src_out"] - c["src_in"] for c in m["clips"])
+    assert replan(tl)["total"] == pytest.approx(min(expected, 50.0), abs=0.1) or tl["fits"] is False
+    m["manual_length"] = 30.0
+    assert replan(tl)["total"] == pytest.approx(30.0, abs=0.05)
     out = render_month(tl, month, month / "manual.mp4", encoder="libx264")
     assert out.exists()
+
+
+def test_clips_can_move_between_lanes_in_manual_mode(tmp_path, cfg):
+    month, lib, tl = month_with_library(tmp_path, cfg)
+    tl = to_manual(tl)
+    ref = str((lib / "second.wav").resolve().as_posix())
+    tl = add_layer(tl, month, ref, start=0.0)  # new songs also go into the manual clips
+    assert len(tl["music"]["clips"]) == 2 and tl["music"]["layers"] == []
+    first, second = tl["music"]["clips"]
+    assert (first["lane"], second["lane"]) == (0, 1)
+    first["lane"], second["lane"] = 1, 0  # drag them past each other: any lane is fine
+    lanes = {c["file"]: c["lane"] for c in replan(tl)["audio_clips"]}
+    assert lanes[first["file"]] == 1 and lanes[second["file"]] == 0
+
+
+def test_layers_never_sit_on_the_automatic_main_lane(tmp_path, cfg):
+    month, lib, tl = month_with_library(tmp_path, cfg)
+    ref = str((lib / "second.wav").resolve().as_posix())
+    tl = add_layer(tl, month, ref, start=3.0)
+    tl["music"]["layers"][0]["lane"] = 0  # e.g. dragged onto the main lane in the editor
+    assert min(c["lane"] for c in replan(tl)["audio_clips"] if not c.get("auto")) == 1
+
+
+def test_captions_have_no_background_box_by_default(tmp_path, cfg):
+    assert load_config()["captions"]["background_opacity"] == 0.0
+    _month, _, tl = month_with_library(tmp_path, cfg)
+    assert make_caption(tl, "plain", 0, 2)["background_opacity"] == 0.0
 
 
 def test_fonts_are_listed_and_only_by_file_name():
@@ -168,3 +206,13 @@ def test_edits_survive_rescan_and_reload(tmp_path, cfg):
     assert tl3["fade"]["color"] == "#ffffff"
     assert tl3["transition"]["type"] == "dissolve" and tl3["transition"]["seconds"] == 0.9
     assert tl3["captions"][0]["text"] == "Keep me"
+
+
+def test_lane_gaps_close_up(tmp_path, cfg):
+    month, lib, tl = month_with_library(tmp_path, cfg)
+    ref = str((lib / "second.wav").resolve().as_posix())
+    tl = add_layer(tl, month, ref, start=3.0)
+    tl = add_layer(tl, month, ref, start=6.0)
+    tl["music"]["layers"][0]["lane"] = 1
+    tl["music"]["layers"][1]["lane"] = 5  # dragged far away
+    assert sorted(c["lane"] for c in replan(tl)["audio_clips"] if not c.get("auto")) == [1, 2]

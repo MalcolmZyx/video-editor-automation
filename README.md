@@ -46,16 +46,21 @@ Every setting has an **(i)** button that explains it.
   music and any extra song layers. The right-hand panel edits whatever is selected.
 
 ## Features
-- **Transitions**: cut, fade (cross-dissolve), wipes, slides... between photos/clips. The blend can start at the
-  cut, be centred on it, or end at it. Override any single join.
+- **Transitions**: cut, fade (cross-dissolve), wipes, slides... The month has a default; every individual join
+  (the diamonds on the Clips row: photo -> photo, photo -> video, video -> card, ...) can have its own style, length
+  and blend position (starts at / centred on / ends at the cut). Backspace on a diamond makes it a hard cut.
 - **Beat sync**: `off`, `snap` (cuts pulled toward beats by a strength you choose; ~60% looks natural), or
   `on_beat` (exact). "Every Nth beat" gives calmer pacing.
-- **Music**: automatic fit (`fit`, `loop_cut`, `multi_song`, `shared_song`), or **manual**: drag/trim every song in
-  the timeline. **Song layers** play a second (third...) song at the same time, each with its own volume/fades.
+- **Music**: automatic fit (`fit`, `loop_cut`, `multi_song`, `shared_song`), or **manual** ("Edit music by hand"):
+  drag songs in the timeline - sideways to move, edges to trim, up/down to another lane. In manual mode the month
+  length stays fixed (editable) while you slide songs around. **Song layers** play a second (third...) song at the
+  same time, each with its own volume/fades.
 - **Sound**: clip sound is off by default; when on it is mixed quietly *under* the music. Music and clip levels are
   separate (month-wide, plus a multiplier per clip).
 - **Cards**: blank colour cards (optional centred text) anywhere in the order.
-- **Captions**: any installed font (with a live preview of each), drag it anywhere on the preview, rotate and resize
+- **Keyboard**: Backspace/Delete removes the selected caption, song, clip (it goes to Dropped), card or transition;
+  Ctrl+Z undoes; Space plays/pauses the live preview.
+- **Captions** (transparent by default; background box optional): any installed font (with a live preview of each), drag it anywhere on the preview, rotate and resize
   with handles, outline, shadow, background box, alignment, fades. Extra fonts: drop `.ttf`/`.otf` files into `fonts/`.
 - **Month fades**: picture fades from/to a colour at the very start/end of a month; music fade-in and
   fade-out-when-cut-early.

@@ -12,7 +12,7 @@ LINE_HEIGHT = 1.25  # in text heights; the editor's live preview uses the same v
 
 CAPTION_DEFAULTS = {
     "font": "", "size": 5.5, "color": "#ffffff", "align": "center", "x": 0.5, "y": 0.9, "rotation": 0.0,
-    "wrap_width": 86.0, "background": "#000000", "background_opacity": 0.45, "box_padding": 0.4,
+    "wrap_width": 86.0, "background": "#000000", "background_opacity": 0.0, "box_padding": 0.4,
     "box_radius": 0.4, "outline_color": "#000000", "outline_width": 0.0, "shadow": False,
 }  # fmt: skip
 _POSITION_Y = {"top": 0.08, "center": 0.5, "bottom": 0.9}  # legacy captions with only `position`

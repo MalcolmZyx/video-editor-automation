@@ -140,6 +140,14 @@ def add_song(tl: dict, month_dir: Path, ref: str) -> dict:
     return replan(tl)
 
 
+def _compress_lanes(clips: list[dict], floor: int) -> None:
+    """Close gaps in lane numbers (lanes 1 and 3 become 1 and 2) so no empty lanes are left behind."""
+    used = sorted({max(floor, int(c.get("lane", floor))) for c in clips})
+    rank = {lane: floor + n for n, lane in enumerate(used)}
+    for c in clips:
+        c["lane"] = rank[max(floor, int(c.get("lane", floor)))]
+
+
 def _layer_defaults(c: dict) -> dict:
     return {"id": uuid.uuid4().hex[:8], "lane": 1, "volume": 1.0, "fade_in": 0.0, "fade_out": 0.0, **c}
 
@@ -149,14 +157,15 @@ def add_layer(tl: dict, month_dir: Path, ref: str, start: float = 0.0) -> dict:
     t = ensure_track(tl, month_dir, ref)
     start = max(0.0, min(start, max(tl.get("total", 0) - 1.0, 0.0)))
     length = min(t["music_end"] - t["music_start"], max(1.0, tl.get("total", 0) - start))
-    layers = tl["music"].setdefault("layers", [])
-    lane = 1
+    manual = tl["music"]["mode"] == "manual"
+    target = tl["music"].setdefault("clips" if manual else "layers", [])
+    lane = 0 if manual else 1
     while any(
         c["lane"] == lane and c["start"] < start + length and start < c["start"] + c["src_out"] - c["src_in"]
-        for c in layers
+        for c in target
     ):
         lane += 1
-    layers.append(_layer_defaults(
+    target.append(_layer_defaults(
         {"file": ref, "lane": lane, "start": round(start, 3), "src_in": t["music_start"],
          "src_out": round(t["music_start"] + length, 3)}
     ))  # fmt: skip
@@ -164,12 +173,16 @@ def add_layer(tl: dict, month_dir: Path, ref: str, start: float = 0.0) -> dict:
 
 
 def to_manual(tl: dict) -> dict:
-    """Turn the automatically planned music into clips you can move, trim and re-time by hand."""
+    """Turn the automatically planned music (and any song layers) into clips you can move/trim by hand.
+
+    The month keeps its current length; change it with `music.manual_length` (None = follow the music).
+    """
     tl = replan(tl)
-    tl["music"]["clips"] = [
-        {k: v for k, v in c.items() if k != "auto"} for c in tl["audio_clips"] if c.get("auto")
-    ]
-    tl["music"]["mode"] = "manual"
+    m = tl["music"]
+    m["clips"] = [{k: v for k, v in c.items() if k != "auto"} for c in tl["audio_clips"]]
+    m["layers"] = []
+    m["manual_length"] = round(tl["total"], 3)
+    m["mode"] = "manual"
     return replan(tl)
 
 
@@ -200,6 +213,7 @@ def _base_item(item_id: str, kind: str) -> dict:
         "fade_out": None,  # seconds to fade out to the fade colour; None = automatic
         "transition_type": None,  # how this item leads into the next; None = month default
         "transition_out": None,  # seconds; None = month default, 0 = cut
+        "transition_align": None,  # start | center | end; None = month default
     }
 
 
@@ -303,6 +317,7 @@ def _fill_defaults(tl: dict) -> None:
     m.setdefault("library", cfg["music"].get("library"))
     m.setdefault("playlist", [t["file"] for t in tl.get("tracks", [])])
     m.setdefault("layers", [])
+    m.setdefault("manual_length", None)
     m.setdefault("clips", [])
     for c in tl["captions"]:  # captions made before a style option existed get its default
         for k, v in tl["caption_style"].items():
@@ -324,17 +339,21 @@ def replan(tl: dict) -> dict:
     ]
     by_id = {t["id"]: t for t in chosen}
     m = tl["music"]
+    _compress_lanes(m["layers"], 1)
+    _compress_lanes(m["clips"], 0)
     manual = m["mode"] == "manual"
     override = None
     if manual:
         clips0 = [_layer_defaults({**c, "lane": c.get("lane", 0)}) for c in m["clips"]]
+        main = [c for c in clips0 if c["lane"] == 0] or clips0  # beats come from the main lane
         beats: list[float] = []
-        for c in clips0:
+        for c in main:
             t = by_file.get(c["file"])
-            if t and c["lane"] == 0:
+            if t:
                 beats += [c["start"] + b - c["src_in"] for b in t["beats"] if c["src_in"] <= b <= c["src_out"]]
         if clips0:
-            override = (max(c["start"] + c["src_out"] - c["src_in"] for c in clips0), sorted(beats))
+            end = max(c["start"] + c["src_out"] - c["src_in"] for c in clips0)
+            override = (m.get("manual_length") or end, sorted(beats))
     plan = plan_month(
         items,
         tracks,
@@ -372,7 +391,7 @@ def replan(tl: dict) -> dict:
             })  # fmt: skip
             pos += a.end - a.start
     for c in m["layers"]:
-        clips.append(_layer_defaults(c))
+        clips.append(_layer_defaults({**c, "lane": max(1, c.get("lane", 1))}))
     tl["audio_clips"] = clips
     tl["total"], tl["fits"], tl["note"] = plan.total, plan.fits, plan.note
     tl["next_offset"] = plan.next_offset

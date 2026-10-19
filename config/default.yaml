@@ -53,7 +53,7 @@ captions:               # defaults for new captions (each caption can override e
   rotation: 0           # degrees, clockwise
   wrap_width: 86        # wrap text at this % of the frame width
   background: "#000000"
-  background_opacity: 0.45
+  background_opacity: 0.0   # 0 = no background box (transparent); try 0.5 for a dark box
   box_padding: 0.4      # in text heights
   box_radius: 0.4       # rounded corners, in text heights
   outline_color: "#000000"

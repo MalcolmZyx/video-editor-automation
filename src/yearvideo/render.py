@@ -84,40 +84,38 @@ def month_fades(tl: dict, it: dict, n: int, count: int) -> tuple[float, float]:
     return f_in, f_out
 
 
-def align_factor(tl: dict) -> float:
-    return ALIGN.get(tl["transition"].get("align", "center"), 0.5)
+def plan_transitions(tl: dict, items: list[dict]) -> list[tuple[str, float, float]]:
+    """(type, seconds, align) for the join after each item except the last; seconds 0 = hard cut.
 
-
-def plan_transitions(tl: dict, items: list[dict]) -> list[tuple[str, float]]:
-    """(type, seconds) for the join after each item except the last; seconds 0 = hard cut.
-
-    A blend of length t at a cut lies from (cut - a*t) to (cut + (1-a)*t), where a is 0, 0.5 or 1
-    for start / center / end alignment. Lengths are clamped so every item keeps some clear screen time.
+    Every join can have its own style, length and alignment (an item's transition_type /
+    transition_out / transition_align), falling back to the month's settings. A blend of length t at
+    a cut lies from (cut - a*t) to (cut + (1-a)*t), where a is 0, 0.5 or 1 for start / center / end.
+    Lengths are clamped so every item keeps some clear screen time.
     """
     base = tl["transition"]
-    a = align_factor(tl)
-    out: list[tuple[str, float]] = []
-    prev = 0.0
+    out: list[tuple[str, float, float]] = []
+    prev_t, prev_a = 0.0, 0.5
     for i, it in enumerate(items[:-1]):
         typ = it.get("transition_type") or base["type"]
         secs = it.get("transition_out")
         secs = base["seconds"] if secs is None else secs
+        a = ALIGN.get(it.get("transition_align") or base.get("align", "center"), 0.5)
         if typ not in XFADES or secs <= 0:
-            out.append(("cut", 0.0))
-            prev = 0.0
+            out.append(("cut", 0.0, a))
+            prev_t = 0.0
             continue
         cap = 3.0
         if a > 0:
-            cap = min(cap, (it["duration"] - (1 - a) * prev - MIN_BODY) / a)
+            cap = min(cap, (it["duration"] - (1 - prev_a) * prev_t - MIN_BODY) / a)
         if a < 1:
             cap = min(cap, (items[i + 1]["duration"] - MIN_BODY) / (1 - a))
         secs = min(secs, cap)
         if secs > 0.05:
-            out.append((typ, secs))
-            prev = secs
+            out.append((typ, secs, a))
+            prev_t, prev_a = secs, a
         else:
-            out.append(("cut", 0.0))
-            prev = 0.0
+            out.append(("cut", 0.0, a))
+            prev_t = 0.0
     return out
 
 
@@ -216,7 +214,6 @@ def render_month(
         raise ValueError("timeline has no kept items")
     count = len(items)
     trans = plan_transitions(tl, items)
-    a = align_factor(tl)
     color = ffcolor(tl["fade"]["color"])
 
     with tempfile.TemporaryDirectory() as td:
@@ -258,10 +255,10 @@ def render_month(
 
         clips: list[Path] = []
         for n, it in enumerate(items):
-            t_in = trans[n - 1][1] if n > 0 else 0.0
-            t_out = trans[n][1] if n < count - 1 else 0.0
-            u0 = (1 - a) * t_in  # the first part of this item is already on screen in the incoming blend
-            body = it["duration"] - u0 - a * t_out
+            t_in, a_in = (trans[n - 1][1], trans[n - 1][2]) if n > 0 else (0.0, 0.5)
+            t_out, a_out = (trans[n][1], trans[n][2]) if n < count - 1 else (0.0, 0.5)
+            u0 = (1 - a_in) * t_in  # the first part of this item is already on screen in the incoming blend
+            body = it["duration"] - u0 - a_out * t_out
             inp, extra = inputs_for(n, u0, body)
             vf = _fit(w, h, fps) + extra
             f_in, f_out = month_fades(tl, it, n, count)
@@ -275,7 +272,7 @@ def render_month(
             _run([ff, "-y", "-v", "error", *inp, "-vf", vf, "-an", "-t", f"{body:.3f}", *enc, str(clip)])
             clips.append(clip)
             if n < count - 1 and t_out > 0:  # blend the end of this item into the start of the next
-                typ, secs = trans[n]
+                typ, secs, a = trans[n]
                 a_in, a_x = inputs_for(n, it["duration"] - a * secs, secs)
                 b_in, b_x = inputs_for(n + 1, -a * secs, secs)
                 graph = (

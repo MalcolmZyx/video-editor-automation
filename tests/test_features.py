@@ -170,5 +170,26 @@ def test_transition_never_swallows_a_short_item(tmp_path, cfg):
     tl["transition"] = {"type": "fade", "seconds": 3.0, "align": "center"}
     from yearvideo.render import plan_transitions
 
-    (typ, secs), = plan_transitions(tl, [i for i in tl["items"] if i["keep"]])
+    ((typ, secs, _),) = plan_transitions(tl, [i for i in tl["items"] if i["keep"]])
     assert typ == "fade" and secs <= 0.6 * 2  # clamped so each item keeps clear time
+
+
+def test_every_join_can_have_its_own_style_length_and_alignment(tmp_path, cfg):
+    tl = two_card_month(tmp_path, cfg)
+    insert_card(tl, color="#00ff00", seconds=3.0)  # red 0-3, blue 3-6, green 6-9
+    tl = replan(tl)
+    red, blue, _green = [i for i in tl["items"] if i["kind"] == "card"]
+    tl["transition"] = {"type": "cut", "seconds": 0.6, "align": "center"}  # month default: hard cuts
+    red["transition_type"], red["transition_out"], red["transition_align"] = "fade", 1.0, "start"
+    blue["transition_type"], blue["transition_out"], blue["transition_align"] = "fade", 1.0, "end"
+    out = render_month(tl, tmp_path, tmp_path / "joins.mp4", encoder="libx264")
+    # join 1 (3s) starts at the cut: red until 3s, mixed 3.5s, blue by 4s
+    assert tuple(frame(out, 2.8, tmp_path)[90, 160]) == pytest.approx((255, 0, 0), abs=25)
+    mid = frame(out, 3.5, tmp_path)[90, 160]
+    assert 80 < mid[0] < 180 and 80 < mid[2] < 180
+    # join 2 (6s) ends at the cut: blue until 5s, mixed 5.5s, green from 6s
+    assert tuple(frame(out, 4.8, tmp_path)[90, 160]) == pytest.approx((0, 0, 255), abs=25)
+    mid2 = frame(out, 5.5, tmp_path)[90, 160]
+    assert 80 < mid2[1] < 180 and 80 < mid2[2] < 180
+    assert tuple(frame(out, 6.3, tmp_path)[90, 160]) == pytest.approx((0, 255, 0), abs=30)
+    assert duration(out) == pytest.approx(9.0, abs=0.3)
