@@ -149,7 +149,9 @@
 
   <h2>Storyboard <span class="mut" style="text-transform:none;letter-spacing:0">— the order the photos and clips play in</span>
     <button class="i" data-k="storyboard">i</button>
-    <button id="btnAddCard">+ Colour card at end</button><button class="i" data-k="card">i</button></h2>
+    <button id="btnAddCard">+ Colour card at end</button><button class="i" data-k="card">i</button>
+    <button id="btnGroup">Group by theme</button><button id="btnUngroup" title="Back to the order they were taken in">Ungroup (by time)</button><button class="i" data-k="themes">i</button></h2>
+  <div id="themeLegend" class="mut" style="margin:4px 0 8px"></div>
   <div id="kept" class="grid"></div>
   <h2 id="dh">Dropped</h2>
   <div id="dropped" class="grid"></div>
@@ -197,6 +199,7 @@ const INFO = {
   live: "Live preview plays your edits instantly as you make them: photos, clips, transitions, fades, cards, captions and music. It is a close approximation (small differences in text spacing are possible). 'Rendered preview' and 'Final' show real video files.",
   settings: "These settings belong to this month only. New months start from config/default.yaml. Your changes are saved automatically and are never overwritten when you rescan.",
   storyboard: "Every kept photo/clip in playing order. Untick 'keep' to leave something out (it moves to Dropped, where you can bring it back). Use ▲▼ to reorder.",
+  themes: "Puts photos and clips that show the same kind of thing next to each other (beach, food, selfies…), using a small picture-recognition model that runs on this computer. It only looks at what is still kept, so duplicates you dropped are ignored, and you can still reorder by hand afterwards. 'Ungroup' goes back to the order they were taken in. Undo (Ctrl+Z) works too. The first time it downloads the model (about 150 MB).",
   card: "A blank card in any colour (optionally with centred text) that you can put anywhere in the order — for example between two parts of the month.",
   caption: "Adds a text caption that starts at the moment the preview is currently showing (where the red line is in the timeline). Then: drag the text in the preview to move it, use the round handle above it to rotate and the square corner to resize. Drag the purple block in the timeline to change when it shows, or drag its edges to lengthen/shorten it. All other options are in the panel on the right.",
   layer: "Plays another song AT THE SAME TIME as the main music, starting at the current time. It gets its own row in the timeline: drag it to move it, drag its edges to trim it, and set its volume and fades in the panel on the right. Use it for a second song, an ambient sound, etc.",
@@ -358,6 +361,13 @@ async function init() {
   $('btnRefresh').onclick = async () => { tl = await api('/api/refresh', {}); songs = await api('/api/songs'); drawAll(); };
   $('btnPreview').onclick = () => startRender(true);
   $('btnFinal').onclick = () => startRender(false);
+  const grouper = (action) => async () => {
+    const b = $(action === 'group' ? 'btnGroup' : 'btnUngroup'); const old = b.textContent;
+    b.disabled = true; b.textContent = action === 'group' ? 'Grouping… (first time downloads the model)' : '…';
+    try { await act('/api/themes', { action }); drawAll(); } catch (e) { /* api() already showed the error */ }
+    b.disabled = false; b.textContent = old;
+  };
+  $('btnGroup').onclick = grouper('group'); $('btnUngroup').onclick = grouper('ungroup');
   $('btnAddCard').onclick = async () => { await act('/api/card', {}); drawAll(); };
   $('btnAddCap').onclick = () => addCaption(curTime());
   $('btnAddLayer').onclick = addLayer;
@@ -558,6 +568,7 @@ function card(it, idx) {
   const d = document.createElement('div');
   d.className = 'card' + (it.keep ? '' : ' off') + (sel && sel.type === 'item' && sel.id === it.id ? ' sel' : '');
   d.dataset.id = it.id;
+  if (it.keep && it.theme !== undefined) d.style.borderLeft = `5px solid hsl(${((it.theme_n || 0) * 67) % 360} 65% 55%)`;
   const dur = it.duration;
   const lenInp = `<input type="number" step="0.5" min="0.5" data-f="ov" placeholder="auto ${fmt(dur)}" value="${it.duration_override ?? ''}">`;
   const sim = (tl.similar_groups || []).findIndex(g => g.includes(it.id));
@@ -596,6 +607,7 @@ function card(it, idx) {
     </div>
     ${it.drop_reason ? `<div class="name bad">${esc(it.drop_reason)}</div>` : ''}
     ${sim >= 0 ? `<div class="name">similar group ${sim + 1}</div>` : ''}
+    ${it.theme ? `<div class="name">theme: <b>${esc(it.theme)}</b></div>` : ''}
     ${it.keep ? `<div class="row"><span><button data-f="up">▲</button> <button data-f="down">▼</button></span>
       <span><button data-f="addcard" title="Insert a colour card after this">+ card</button>${it.kind === 'card' ? ' <button data-f="del" title="Remove this card">✕</button>' : ''}</span></div>` : ''}
   </div>`;
@@ -630,7 +642,15 @@ function card(it, idx) {
   });
   return d;
 }
+function themeLegend() {
+  const n = {};
+  tl.items.forEach(it => { if (it.keep && it.theme) n[it.theme] = [(n[it.theme] || [0])[0] + 1, it.theme_n || 0]; });
+  const parts = Object.entries(n).sort((a, b) => a[1][1] - b[1][1]).map(([t, [c, k]]) =>
+    `<span class="badge" style="border-left:5px solid hsl(${(k * 67) % 360} 65% 55%)">${esc(t)} · ${c}</span>`);
+  $('themeLegend').innerHTML = parts.length ? 'Themes: ' + parts.join(' ') : '';
+}
 function drawStoryboard() {
+  themeLegend();
   $('kept').replaceChildren(...tl.items.map((it, n) => it.keep ? card(it, n) : null).filter(Boolean));
   const dropped = tl.items.map((it, n) => it.keep ? null : card(it, n)).filter(Boolean);
   $('dh').textContent = `Dropped (${dropped.length}) — tick “keep” to restore`;

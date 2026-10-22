@@ -73,3 +73,11 @@ Every setting has an **(i)** button that explains it.
 python -m venv .venv; .venv\Scripts\pip install -e ".[dev]"; .venv\Scripts\pytest
 python -m yearvideo.fakedata out\fake --months 3      # fake photos/videos/songs, no real media needed
 ```
+
+## Group by theme (optional)
+
+`.venv\Scripts\pip install -e ".[themes]"` adds a small picture-recognition model (OpenAI CLIP via ONNX Runtime, runs
+on your CPU, nothing is uploaded). In the storyboard, **Group by theme** puts photos/clips that show the same kind of
+thing (beach, food, selfies...) next to each other and labels each group; **Ungroup (by time)** restores capture order.
+It only looks at items that are still *kept*, so duplicates you dropped are ignored. The model (~150 MB) downloads on
+first use into `~/.yearvideo/models`.

@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-import sys
 import mimetypes
 import re
 import subprocess
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -20,6 +20,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from PIL import Image, ImageOps
 
+from . import themes
 from .fonts import list_fonts, resolve_font
 from .ingest import PHOTO_EXT, VIDEO_EXT, find_tool
 from .pipeline import (
@@ -116,6 +117,25 @@ class Review:
                 im.thumbnail(THUMB)
                 im.save(out, quality=80)
         return out
+
+    def group_themes(self, group: bool) -> dict:
+        """Group the KEPT photos/clips by what they show (duplicates were already dropped), or undo it."""
+        tl = self.timeline()
+        if not group:
+            return self.save(themes.ungroup(tl))
+        if not themes.available():
+            raise RuntimeError('Theme grouping needs: pip install -e ".[themes]"')
+        ids, entries = [], []
+        for it in tl["items"]:
+            if it["keep"] and it["kind"] in ("photo", "video"):
+                t = self.thumb(it["id"], it.get("src_in") or 0.0)
+                if t:
+                    ids.append(it["id"])
+                    entries.append((t, ""))
+        if len(entries) < 2:
+            raise RuntimeError("Not enough kept photos/clips to group.")
+        tl = themes.arrange(self.timeline(), themes.group_items(entries), ids)
+        return self.save(tl)
 
     def proxy_image(self, rel: str, width: int = 1280) -> Path | None:
         """A web-sized JPEG of a photo for the live preview (originals can be huge or HEIC)."""
@@ -363,6 +383,8 @@ def make_handler(app: App):
                     elif act == "library":
                         tl["music"]["library"] = body.get("library") or None
                     self._json(rv.save(tl))
+                elif u.path == "/api/themes":
+                    self._json(rv.group_themes(body.get("action") != "ungroup"))
                 elif u.path == "/api/render":
                     rv.render(bool(body.get("preview")))
                     self._json(rv.status())
