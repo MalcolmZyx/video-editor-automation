@@ -11,5 +11,7 @@ music/
 *.mov
 *.mp3
 *.wav
+*.jpg
 !tests/fixtures/**
 *.egg-info/
+my-year/

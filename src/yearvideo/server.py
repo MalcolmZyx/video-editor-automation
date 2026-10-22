@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 import mimetypes
 import re
 import subprocess
@@ -373,5 +374,15 @@ def make_handler(app: App):
     return H
 
 
+class QuietServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        # a browser tab that reloads/closes mid-response is normal; don't spam tracebacks for it
+        if isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):
+            return
+        super().handle_error(request, client_address)
+
+
 def serve(root: Path, port: int = 8765) -> ThreadingHTTPServer:
-    return ThreadingHTTPServer(("127.0.0.1", port), make_handler(App(root)))
+    return QuietServer(("127.0.0.1", port), make_handler(App(root)))
