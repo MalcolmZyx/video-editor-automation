@@ -34,8 +34,9 @@ LABELS = [
     "the sky", "water", "snow", "art or a painting", "a close-up of an object",
 ]  # fmt: skip
 
-MIN_SIM = 0.74  # two pictures this alike (average over a group) belong together
-LOOSE_SIM = 0.62  # a lone picture joins the closest group if at least this alike
+# how alike (average cosine similarity) pictures must be to count as the same moment
+STRICTNESS = {"very strict": 0.92, "strict": 0.88, "loose": 0.84}
+DEFAULT_STRICTNESS = "strict"
 
 
 def model_dir() -> Path:
@@ -105,10 +106,10 @@ class Clip:
         return e / np.linalg.norm(e, axis=1, keepdims=True)
 
 
-def cluster(emb: np.ndarray, min_sim: float = MIN_SIM, loose: float = LOOSE_SIM) -> tuple[list[list[int]], list[int]]:
-    """Average-linkage grouping on cosine similarity -> (groups, leftovers).
+def cluster(emb: np.ndarray, min_sim: float) -> list[list[int]]:
+    """Average-linkage grouping on cosine similarity; only groups of 2+ pictures are returned.
 
-    Stray single pictures join the nearest group if alike enough; the rest are the leftovers.
+    Anything that is not very alike another picture is simply left out (it keeps its place in time).
     """
     n = len(emb)
     groups: list[list[int]] = [[i] for i in range(n)]
@@ -130,19 +131,7 @@ def cluster(emb: np.ndarray, min_sim: float = MIN_SIM, loose: float = LOOSE_SIM)
         groups[a] += groups[b]
         sums[a] = sums[a] + sums[b]
         del groups[b], sums[b]
-
-    # lone pictures: attach to the closest bigger group if reasonably alike, else they stay "other"
-    big = [g for g in groups if len(g) > 1]
-    loners = [g[0] for g in groups if len(g) == 1]
-    if big:
-        cents = [emb[g].mean(0) for g in big]
-        for i in loners[:]:
-            sims = [float(emb[i] @ c / np.linalg.norm(c)) for c in cents]
-            j = int(np.argmax(sims))
-            if sims[j] >= loose:
-                big[j].append(i)
-                loners.remove(i)
-    return [sorted(g) for g in big], sorted(loners)
+    return [sorted(g) for g in groups if len(g) > 1]
 
 
 def embed_cached(clip: Clip, entries: list[tuple[Path, str]]) -> np.ndarray:
@@ -169,21 +158,16 @@ def embed_cached(clip: Clip, entries: list[tuple[Path, str]]) -> np.ndarray:
     return np.stack([store[k] for k in keys])
 
 
-def group_items(entries: list[tuple[Path, str]]) -> list[dict]:
-    """[{label, members: [index into entries]}] for the given (image path, key) pairs, biggest first."""
+def group_items(entries: list[tuple[Path, str]], strictness: str = DEFAULT_STRICTNESS) -> list[dict]:
+    """[{label, members: [index into entries]}] for pictures that look like the same moment."""
     clip = Clip()
     emb = embed_cached(clip, entries)
-    groups, leftovers = cluster(emb)
+    groups = cluster(emb, STRICTNESS.get(strictness, STRICTNESS[DEFAULT_STRICTNESS]))
     lab = clip.labels(LABELS)
-    merged: dict[str, list[int]] = {}
-    for g in groups:  # groups the model would call the same thing are one theme
-        label = LABELS[int(np.argmax(lab @ emb[g].mean(0)))]
-        merged.setdefault(label.removeprefix("a ").removeprefix("an "), []).extend(g)
-    out = [{"label": k, "members": sorted(v)} for k, v in merged.items()]
-    out.sort(key=lambda g: -len(g["members"]))
-    if leftovers:
-        out.append({"label": "other", "members": leftovers})
-    return out
+    return [
+        {"label": LABELS[int(np.argmax(lab @ emb[g].mean(0)))].removeprefix("a ").removeprefix("an "), "members": g}
+        for g in groups
+    ]
 
 
 def _slots(tl: dict) -> list[int]:
@@ -196,22 +180,29 @@ def _when(it: dict) -> tuple:
 
 
 def arrange(tl: dict, groups: list[dict], ids: list[str]) -> dict:
-    """Put each theme's items next to each other. `groups` members index into `ids` (kept items only).
+    """Pull each group together at the spot where its EARLIEST item sits in time.
 
-    Themes play in order of their earliest item; inside a theme items stay in time order, and the
-    leftover "other" group goes last.
+    Pictures that are not in a group keep their time position. Inside a group items stay in time order.
+    `groups` members index into `ids` (the kept photos/clips).
     """
     by_id = {it["id"]: it for it in tl["items"]}
-    placed = []
+    grouped: set[str] = set()
+    units = []
     for n, g in enumerate(groups):
         members = sorted((by_id[ids[i]] for i in g["members"]), key=_when)
         for it in members:
             it["theme"], it["theme_n"] = g["label"], n
-        placed.append((g["label"] == "other", _when(members[0]), members))
-    placed.sort(key=lambda t: t[:2])
-    order = [it for _, _, members in placed for it in members]
-    slots = _slots(tl)
-    for n, it in zip(slots, order):
+            grouped.add(it["id"])
+        units.append((_when(members[0]), members))
+    for i in ids:
+        if i not in grouped:
+            it = by_id[i]
+            it.pop("theme", None)
+            it.pop("theme_n", None)
+            units.append((_when(it), [it]))
+    units.sort(key=lambda u: u[0])
+    order = [it for _, members in units for it in members]
+    for n, it in zip(_slots(tl), order):
         tl["items"][n] = it
     return tl
 

@@ -150,7 +150,7 @@
   <h2>Storyboard <span class="mut" style="text-transform:none;letter-spacing:0">— the order the photos and clips play in</span>
     <button class="i" data-k="storyboard">i</button>
     <button id="btnAddCard">+ Colour card at end</button><button class="i" data-k="card">i</button>
-    <button id="btnGroup">Group by theme</button><button id="btnUngroup" title="Back to the order they were taken in">Ungroup (by time)</button><button class="i" data-k="themes">i</button></h2>
+    <button id="btnGroup">Group same moments</button> <select id="grpStrict" title="How alike pictures must be to count as the same moment"><option value="very strict">very strict</option><option value="strict" selected>strict</option><option value="loose">loose</option></select><button id="btnUngroup" title="Back to the order they were taken in">Ungroup (by time)</button><button class="i" data-k="themes">i</button></h2>
   <div id="themeLegend" class="mut" style="margin:4px 0 8px"></div>
   <div id="kept" class="grid"></div>
   <h2 id="dh">Dropped</h2>
@@ -201,7 +201,7 @@ const INFO = {
   live: "Live preview plays your edits instantly as you make them: photos, clips, transitions, fades, cards, captions and music. It is a close approximation (small differences in text spacing are possible). 'Rendered preview' and 'Final' show real video files.",
   settings: "These settings belong to this month only. New months start from config/default.yaml. Your changes are saved automatically and are never overwritten when you rescan.",
   storyboard: "Every kept photo/clip in playing order. Untick 'keep' to leave something out (it moves to Dropped, where you can bring it back). Use ▲▼ to reorder.",
-  themes: "Puts photos and clips that show the same kind of thing next to each other (beach, food, selfies…), using a small picture-recognition model that runs on this computer. It only looks at what is still kept, so duplicates you dropped are ignored, and you can still reorder by hand afterwards. 'Ungroup' goes back to the order they were taken in. Undo (Ctrl+Z) works too. The first time it downloads the model (about 150 MB).",
+  themes: "Finds photos/clips that show the SAME MOMENT (for example shots of one event taken by different people at different times) and puts them together. Time stays in charge: a group sits where its earliest photo was taken, and anything that is not very alike another picture stays exactly where it was. 'strict' is the default; 'very strict' only joins near-identical shots, 'loose' joins more. Only kept items are used (dropped duplicates are ignored). 'Ungroup' restores time order; Ctrl+Z also undoes. Runs on this computer; the first time it downloads a ~150 MB model.",
   borrow: "Move (cut and paste) photos or clips from another month's folder into this month. The FILE is moved on disk, so it disappears from the other month and its plan updates by itself. Items you took are marked 'from <month>' and have a 'send back' button that puts the file back where it came from. Nothing is overwritten: a name clash gets a suffix.",
   card: "A blank card in any colour (optionally with centred text) that you can put anywhere in the order — for example between two parts of the month.",
   caption: "Adds a text caption that starts at the moment the preview is currently showing (where the red line is in the timeline). Then: drag the text in the preview to move it, use the round handle above it to rotate and the square corner to resize. Drag the purple block in the timeline to change when it shows, or drag its edges to lengthen/shorten it. All other options are in the panel on the right.",
@@ -367,7 +367,7 @@ async function init() {
   const grouper = (action) => async () => {
     const b = $(action === 'group' ? 'btnGroup' : 'btnUngroup'); const old = b.textContent;
     b.disabled = true; b.textContent = action === 'group' ? 'Grouping… (first time downloads the model)' : '…';
-    try { await act('/api/themes', { action }); drawAll(); } catch (e) { /* api() already showed the error */ }
+    try { await act('/api/themes', { action, strictness: $('grpStrict').value }); drawAll(); } catch (e) { /* api() already showed the error */ }
     b.disabled = false; b.textContent = old;
   };
   $('btnGroup').onclick = grouper('group'); $('btnUngroup').onclick = grouper('ungroup');

@@ -189,7 +189,7 @@ class Review:
             save_timeline(tl, self.path)
             return tl
 
-    def group_themes(self, group: bool) -> dict:
+    def group_themes(self, group: bool, strictness: str = themes.DEFAULT_STRICTNESS) -> dict:
         """Group the KEPT photos/clips by what they show (duplicates were already dropped), or undo it."""
         tl = self.timeline()
         if not group:
@@ -205,7 +205,7 @@ class Review:
                     entries.append((t, ""))
         if len(entries) < 2:
             raise RuntimeError("Not enough kept photos/clips to group.")
-        tl = themes.arrange(self.timeline(), themes.group_items(entries), ids)
+        tl = themes.arrange(self.timeline(), themes.group_items(entries, strictness), ids)
         return self.save(tl)
 
     def proxy_image(self, rel: str, width: int = 1280) -> Path | None:
@@ -467,7 +467,7 @@ def make_handler(app: App):
                             return self._json({"error": "choose a different month to take from"}, 400)
                         self._json(rv.take_from(other, body.get("ids", [])))
                 elif u.path == "/api/themes":
-                    self._json(rv.group_themes(body.get("action") != "ungroup"))
+                    self._json(rv.group_themes(body.get("action") != "ungroup", body.get("strictness") or themes.DEFAULT_STRICTNESS))
                 elif u.path == "/api/render":
                     rv.render(bool(body.get("preview")))
                     self._json(rv.status())

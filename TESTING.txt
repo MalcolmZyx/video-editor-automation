@@ -56,7 +56,8 @@ STEP 4 - What to try in the editor, in this order
 -------------------------------------------------------------------------------------
  1. Dropped list: restore anything that was wrongly dropped as a duplicate.
  2. Videos: click "Trim..." on a clip and check the auto-picked moment.
- 3. Group by theme (Storyboard header): groups kept photos by what they show.
+ 3. Group same moments (Storyboard header): puts photos of the SAME moment/event together, placed where
+    the first one was taken; everything else stays in time order. Strictness dropdown next to it.
     "Ungroup (by time)" or Ctrl+Z undoes it. First use downloads ~150 MB once.
  4. Take from other months (bottom of the page, year folder only): tick photos from
     another month and press "Move N selected here". This MOVES the files on disk

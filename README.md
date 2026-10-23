@@ -77,7 +77,8 @@ python -m yearvideo.fakedata out\fake --months 3      # fake photos/videos/songs
 ## Group by theme (optional)
 
 `.venv\Scripts\pip install -e ".[themes]"` adds a small picture-recognition model (OpenAI CLIP via ONNX Runtime, runs
-on your CPU, nothing is uploaded). In the storyboard, **Group by theme** puts photos/clips that show the same kind of
-thing (beach, food, selfies...) next to each other and labels each group; **Ungroup (by time)** restores capture order.
+on your CPU, nothing is uploaded). In the storyboard, **Group same moments** finds photos/clips that show the *same moment* (e.g. one event shot by
+different people at different times) and puts them together. Time stays in charge: a group sits where its earliest
+photo was taken and everything else keeps its time position. Strictness: very strict / strict (default) / loose; **Ungroup (by time)** restores capture order.
 It only looks at items that are still *kept*, so duplicates you dropped are ignored. The model (~150 MB) downloads on
 first use into `~/.yearvideo/models`.
