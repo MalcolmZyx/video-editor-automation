@@ -11,6 +11,7 @@ import hashlib
 import json
 import mimetypes
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -117,6 +118,76 @@ class Review:
                 im.thumbnail(THUMB)
                 im.save(out, quality=80)
         return out
+
+    def media_list(self) -> list[dict]:
+        """Every photo/clip file in this month's folder (cheap: names only, no analysis)."""
+        out = []
+        for p in sorted(self.dir.rglob("*")):
+            rel = p.relative_to(self.dir)
+            if any(part.startswith(".") or part == "music" for part in rel.parts) or not p.is_file():
+                continue
+            ext = p.suffix.lower()
+            if ext in PHOTO_EXT or ext in VIDEO_EXT:
+                out.append({"id": rel.as_posix(), "kind": "photo" if ext in PHOTO_EXT else "video"})
+        return out
+
+    def rescan(self) -> None:
+        """Pick up files that were moved in/out of the folder, if this month has been planned."""
+        with self.lock:
+            if self.path.exists():
+                save_timeline(refresh_timeline(load_timeline(self.path), self.dir), self.path)
+
+    def take_from(self, other: Review, ids: list[str]) -> dict:
+        """Move (cut + paste) files from another month's folder into this one; both months re-scan."""
+        moved = []
+        for rel in ids:
+            src = other.safe(rel)
+            if not src or src.suffix.lower() not in PHOTO_EXT | VIDEO_EXT:
+                raise ValueError(f"not a photo/clip of {other.name}: {rel}")
+            sub = "photos" if src.suffix.lower() in PHOTO_EXT else "videos"
+            dest = self.dir / sub / src.name
+            n = 1
+            while dest.exists():  # never overwrite: add a suffix instead
+                dest = self.dir / sub / f"{src.stem}_from-{other.name}{'' if n == 1 else f'-{n}'}{src.suffix}"
+                n += 1
+            dest.parent.mkdir(exist_ok=True)
+            shutil.move(str(src), str(dest))
+            moved.append({"id": dest.relative_to(self.dir).as_posix(), "from": other.name, "rel": rel})
+        other.rescan()
+        self.timeline()  # make sure this month has a timeline
+        with self.lock:
+            tl = refresh_timeline(load_timeline(self.path), self.dir)
+            tl.setdefault("borrowed", []).extend(moved)
+            save_timeline(tl, self.path)
+            return tl
+
+    def send_back(self, other_of: dict, ids: list[str]) -> dict:
+        """Undo a borrow: move the files back to the month (and path) they came from."""
+        tl = self.timeline()
+        touched = []
+        keep = []
+        for b in tl.get("borrowed", []):
+            if b["id"] not in ids:
+                keep.append(b)
+                continue
+            src, home = self.safe(b["id"]), other_of.get(b["from"])
+            if not src or not home:
+                keep.append(b)
+                continue
+            dest = home.dir / b["rel"]
+            if dest.exists():
+                dest = dest.with_name(f"{dest.stem}_returned{dest.suffix}")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(src), str(dest))
+            touched.append(home)
+        for h in touched:
+            h.rescan()
+        with self.lock:
+            tl = load_timeline(self.path)
+            tl["borrowed"] = keep
+            tl = refresh_timeline(tl, self.dir)
+            save_timeline(tl, self.path)
+            return tl
 
     def group_themes(self, group: bool) -> dict:
         """Group the KEPT photos/clips by what they show (duplicates were already dropped), or undo it."""
@@ -309,6 +380,10 @@ def make_handler(app: App):
                     self._json([{k: v for k, v in f.items() if k != "path"} for f in list_fonts()])
                 elif u.path == "/api/render_status":
                     self._json(rv.status())
+                elif u.path == "/api/borrow":  # photos/clips in the OTHER months, to pick from
+                    self._json([
+                        {"name": n, "items": r.media_list()} for n, r in app.months.items() if r is not rv
+                    ])  # fmt: skip
                 elif u.path == "/api/songs":
                     self._json(list_songs(rv.dir, rv.timeline()))
                 elif u.path == "/song":
@@ -383,6 +458,14 @@ def make_handler(app: App):
                     elif act == "library":
                         tl["music"]["library"] = body.get("library") or None
                     self._json(rv.save(tl))
+                elif u.path == "/api/borrow":
+                    if body.get("action") == "return":
+                        self._json(rv.send_back(app.months, body.get("ids", [])))
+                    else:
+                        other = app.months.get(body.get("from"))
+                        if other is None or other is rv:
+                            return self._json({"error": "choose a different month to take from"}, 400)
+                        self._json(rv.take_from(other, body.get("ids", [])))
                 elif u.path == "/api/themes":
                     self._json(rv.group_themes(body.get("action") != "ungroup"))
                 elif u.path == "/api/render":

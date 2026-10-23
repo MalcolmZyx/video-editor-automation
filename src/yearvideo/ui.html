@@ -155,6 +155,8 @@
   <div id="kept" class="grid"></div>
   <h2 id="dh">Dropped</h2>
   <div id="dropped" class="grid"></div>
+  <h2>Take from other months <button class="i" data-k="borrow">i</button></h2>
+  <div id="borrow" class="mut">Open the whole year folder (not a single month) to take photos from other months.</div>
   <div style="height:20px"></div>
 </main>
 
@@ -200,6 +202,7 @@ const INFO = {
   settings: "These settings belong to this month only. New months start from config/default.yaml. Your changes are saved automatically and are never overwritten when you rescan.",
   storyboard: "Every kept photo/clip in playing order. Untick 'keep' to leave something out (it moves to Dropped, where you can bring it back). Use ▲▼ to reorder.",
   themes: "Puts photos and clips that show the same kind of thing next to each other (beach, food, selfies…), using a small picture-recognition model that runs on this computer. It only looks at what is still kept, so duplicates you dropped are ignored, and you can still reorder by hand afterwards. 'Ungroup' goes back to the order they were taken in. Undo (Ctrl+Z) works too. The first time it downloads the model (about 150 MB).",
+  borrow: "Move (cut and paste) photos or clips from another month's folder into this month. The FILE is moved on disk, so it disappears from the other month and its plan updates by itself. Items you took are marked 'from <month>' and have a 'send back' button that puts the file back where it came from. Nothing is overwritten: a name clash gets a suffix.",
   card: "A blank card in any colour (optionally with centred text) that you can put anywhere in the order — for example between two parts of the month.",
   caption: "Adds a text caption that starts at the moment the preview is currently showing (where the red line is in the timeline). Then: drag the text in the preview to move it, use the round handle above it to rotate and the square corner to resize. Drag the purple block in the timeline to change when it shows, or drag its edges to lengthen/shorten it. All other options are in the panel on the right.",
   layer: "Plays another song AT THE SAME TIME as the main music, starting at the current time. It gets its own row in the timeline: drag it to move it, drag its edges to trim it, and set its volume and fades in the panel on the right. Use it for a second song, an ambient sound, etc.",
@@ -607,6 +610,7 @@ function card(it, idx) {
     </div>
     ${it.drop_reason ? `<div class="name bad">${esc(it.drop_reason)}</div>` : ''}
     ${sim >= 0 ? `<div class="name">similar group ${sim + 1}</div>` : ''}
+    ${borrowedFrom(it) ? `<div class="row"><span class="name">from <b>${esc(borrowedFrom(it).from)}</b></span><button data-f="back" title="Move the file back to ${esc(borrowedFrom(it).from)}">↩ send back</button></div>` : ''}
     ${it.theme ? `<div class="name">theme: <b>${esc(it.theme)}</b></div>` : ''}
     ${it.keep ? `<div class="row"><span><button data-f="up">▲</button> <button data-f="down">▼</button></span>
       <span><button data-f="addcard" title="Insert a colour card after this">+ card</button>${it.kind === 'card' ? ' <button data-f="del" title="Remove this card">✕</button>' : ''}</span></div>` : ''}
@@ -618,6 +622,7 @@ function card(it, idx) {
     el.onclick = async () => {
       if (el.tagName !== 'BUTTON') return;
       if (f === 'trim') return openTrim(it);
+      if (f === 'back') { await act('/api/borrow', { action:'return', ids:[it.id] }); borrowData = null; return drawAll(); }
       if (f === 'addcard') { await act('/api/card', { after_id: it.id }); return drawAll(); }
       if (f === 'del') { tl.items = tl.items.filter(x => x.id !== it.id); return saveSoon(); }
       const k = keptIdx(), pos = k.indexOf(idx), j = k[pos + (f === 'up' ? -1 : 1)];
@@ -642,6 +647,36 @@ function card(it, idx) {
   });
   return d;
 }
+const borrowedFrom = (it) => (tl.borrowed || []).find(b => b.id === it.id);
+let borrowMonth = '', borrowPick = new Set(), borrowData = null;
+async function drawBorrow() {
+  const box = $('borrow');
+  if (!borrowData) { try { borrowData = await api('/api/borrow'); } catch (e) { return; } }
+  const others = borrowData;
+  if (!others.length) return;
+  if (!others.some(o => o.name === borrowMonth)) borrowMonth = others[0].name;
+  const month = others.find(o => o.name === borrowMonth);
+  box.className = '';
+  box.innerHTML = `<div class="row" style="justify-content:flex-start;gap:8px;margin-bottom:8px">
+      <span class="lbl">Look in</span><select id="bmSel">${others.map(o => `<option ${o.name === borrowMonth ? 'selected' : ''}>${esc(o.name)}</option>`).join('')}</select>
+      <button id="bmGo" class="primary" ${borrowPick.size ? '' : 'disabled'}>Move ${borrowPick.size || ''} selected here</button>
+      <span class="mut">${month.items.length} items — tick the ones to move into ${esc(cur)}</span></div>
+    <div class="grid" id="bmGrid"></div>`;
+  $('bmSel').onchange = (e) => { borrowMonth = e.target.value; borrowPick.clear(); drawBorrow(); };
+  const grid = $('bmGrid');
+  month.items.forEach(m => {
+    const d = document.createElement('label'); d.className = 'card'; d.style.cursor = 'pointer';
+    d.innerHTML = `<img class="thumb" loading="lazy" src="/thumb/${encodeURIComponent(month.name)}/${enc(m.id)}">
+      <div class="b"><div class="row"><span class="name" title="${esc(m.id)}">${esc(m.id.split('/').pop())}</span>
+      <input type="checkbox" ${borrowPick.has(m.id) ? 'checked' : ''}></div></div>`;
+    d.querySelector('input').onchange = (e) => { e.target.checked ? borrowPick.add(m.id) : borrowPick.delete(m.id); $('bmGo').disabled = !borrowPick.size; $('bmGo').textContent = `Move ${borrowPick.size || ''} selected here`; };
+    grid.appendChild(d);
+  });
+  $('bmGo').onclick = async () => {
+    const ids = [...borrowPick]; borrowPick.clear(); $('bmGo').disabled = true;
+    await act('/api/borrow', { from: borrowMonth, ids }); borrowData = null; drawAll();
+  };
+}
 function themeLegend() {
   const n = {};
   tl.items.forEach(it => { if (it.keep && it.theme) n[it.theme] = [(n[it.theme] || [0])[0] + 1, it.theme_n || 0]; });
@@ -651,6 +686,8 @@ function themeLegend() {
 }
 function drawStoryboard() {
   themeLegend();
+  if (drawStoryboard.month !== cur) { drawStoryboard.month = cur; borrowData = null; borrowPick.clear(); }
+  if (!borrowData) drawBorrow();
   $('kept').replaceChildren(...tl.items.map((it, n) => it.keep ? card(it, n) : null).filter(Boolean));
   const dropped = tl.items.map((it, n) => it.keep ? null : card(it, n)).filter(Boolean);
   $('dh').textContent = `Dropped (${dropped.length}) — tick “keep” to restore`;

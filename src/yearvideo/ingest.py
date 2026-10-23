@@ -85,8 +85,9 @@ def scan_month(root: Path) -> list[MediaItem]:
     items: list[MediaItem] = []
     for p in sorted(root.rglob("*")):
         ext = p.suffix.lower()
-        if p.parent.name == "music" or not p.is_file():
-            continue
+        rel_parts = p.relative_to(root).parts
+        if p.parent.name == "music" or not p.is_file() or any(x.startswith(".") for x in rel_parts):
+            continue  # songs, and the editor's own hidden caches (.thumbs, .proxy)
         mtime = datetime.fromtimestamp(p.stat().st_mtime).isoformat()
         rel = p.relative_to(root).as_posix()
         if ext in PHOTO_EXT:

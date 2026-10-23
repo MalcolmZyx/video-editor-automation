@@ -1,0 +1,82 @@
+YEAR VIDEO EDITOR - HOW TO TEST (copy/paste each line into PowerShell, one at a time)
+=====================================================================================
+All commands are run from the project folder:
+
+cd C:\Users\mjzar\Documents\GameJam\video-editor-automation
+
+
+STEP 0 - Get the latest code and tools (once, and after I tell you I pushed changes)
+-------------------------------------------------------------------------------------
+git pull
+.venv\Scripts\pip install -e ".[dev,themes]"
+
+  ("themes" is the optional picture-grouping add-on. Skip ",themes" if you do not want it.)
+
+
+STEP 1 - Quick safety check that everything works on your computer (about 3 minutes)
+-------------------------------------------------------------------------------------
+.venv\Scripts\pytest -q
+
+  Expect:  "... passed" with no failures.
+
+
+STEP 2 - Try it on FAKE data first (no risk to your files)
+-------------------------------------------------------------------------------------
+.venv\Scripts\yearvideo demo output\demo
+
+  Opens the editor in your browser (http://127.0.0.1:8765). Several fake months.
+  Leave the PowerShell window open while you use it. Press Ctrl+C in it to stop.
+
+
+STEP 3 - Your real files
+-------------------------------------------------------------------------------------
+Folder layout (copy your originals in; the tool never edits your originals):
+
+  my-year\
+    01-October\
+      photos\   (JPGs)
+      videos\   (MP4s)
+      music\    (the song for that month: mp3 / wav / m4a / flac)
+    02-November\
+      ...
+
+Name months so they sort in order (01-..., 02-..., or 10-October, 11-November).
+
+Open ONE month:
+.venv\Scripts\yearvideo review my-year\01-October
+
+Open the WHOLE YEAR (needed for "Take from other months"):
+.venv\Scripts\yearvideo review my-year
+
+After you add/remove files in a month folder by hand:
+.venv\Scripts\yearvideo rescan my-year\01-October
+
+
+STEP 4 - What to try in the editor, in this order
+-------------------------------------------------------------------------------------
+ 1. Dropped list: restore anything that was wrongly dropped as a duplicate.
+ 2. Videos: click "Trim..." on a clip and check the auto-picked moment.
+ 3. Group by theme (Storyboard header): groups kept photos by what they show.
+    "Ungroup (by time)" or Ctrl+Z undoes it. First use downloads ~150 MB once.
+ 4. Take from other months (bottom of the page, year folder only): tick photos from
+    another month and press "Move N selected here". This MOVES the files on disk
+    (cut and paste). Each moved item shows "from <month>" with a "send back" button.
+ 5. Music panel: add the song, try beat sync, fades.
+ 6. Click "Render preview" (fast, small), then "Render final".
+ Keyboard: Space = play/pause, Backspace/Delete = remove selected, Ctrl+Z = undo.
+
+
+STEP 5 - Render from the command line (optional)
+-------------------------------------------------------------------------------------
+One month:
+.venv\Scripts\yearvideo render my-year\01-October
+
+Whole year, joined into one video (my-year\year.mp4):
+.venv\Scripts\yearvideo year my-year
+
+
+IF SOMETHING GOES WRONG
+-------------------------------------------------------------------------------------
+- Every save keeps a backup next to your plan:  timeline.json.bak
+- Red messages in the PowerShell window saying "WinError 10053" are harmless.
+- Copy the last ~20 lines of the PowerShell window and send them to me.
