@@ -6,8 +6,8 @@ Turns a year of photos, videos and songs into one recap video. Free/open-source 
 ## Try it with fake data first
 
 ```powershell
-.venv\Scripts\yearvideo demo                 # fake photos/videos/songs in output\demo, then opens the editor
-.venv\Scripts\yearvideo year output\demo     # renders every fake month and joins them into output\demo\year.mp4
+.venv\Scripts\python -m yearvideo demo                 # fake photos/videos/songs in output\demo, then opens the editor
+.venv\Scripts\python -m yearvideo year output\demo     # renders every fake month and joins them into output\demo\year.mp4
 ```
 
 ## Folder layout
@@ -24,10 +24,10 @@ Optional: a separate folder of songs (e.g. `D:\Music\Videos`) that you can pick 
 ## Workflow
 
 ```powershell
-.venv\Scripts\yearvideo review my-year             # editor for all months (month picker at the top)
-.venv\Scripts\yearvideo review my-year\01-January  # or just one month
-.venv\Scripts\yearvideo year   my-year             # plan + render all months, join into year.mp4
-.venv\Scripts\yearvideo rescan my-year\01-January  # pick up added/removed files, keeping every edit
+.venv\Scripts\python -m yearvideo review my-year             # editor for all months (month picker at the top)
+.venv\Scripts\python -m yearvideo review my-year\01-January  # or just one month
+.venv\Scripts\python -m yearvideo year   my-year             # plan + render all months, join into year.mp4
+.venv\Scripts\python -m yearvideo rescan my-year\01-January  # pick up added/removed files, keeping every edit
 ```
 Your edits live in each month's `timeline.json` (the previous save is kept as `timeline.json.bak`).
 `plan` refuses to overwrite an existing timeline (use `rescan`, or `plan --force` to start over), and `year`

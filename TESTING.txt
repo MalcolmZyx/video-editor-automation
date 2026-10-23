@@ -22,7 +22,7 @@ STEP 1 - Quick safety check that everything works on your computer (about 3 minu
 
 STEP 2 - Try it on FAKE data first (no risk to your files)
 -------------------------------------------------------------------------------------
-.venv\Scripts\yearvideo demo output\demo
+.venv\Scripts\python -m yearvideo demo output\demo
 
   Opens the editor in your browser (http://127.0.0.1:8765). Several fake months.
   Leave the PowerShell window open while you use it. Press Ctrl+C in it to stop.
@@ -43,13 +43,13 @@ Folder layout (copy your originals in; the tool never edits your originals):
 Name months so they sort in order (01-..., 02-..., or 10-October, 11-November).
 
 Open ONE month:
-.venv\Scripts\yearvideo review my-year\01-October
+.venv\Scripts\python -m yearvideo review my-year\01-October
 
 Open the WHOLE YEAR (needed for "Take from other months"):
-.venv\Scripts\yearvideo review my-year
+.venv\Scripts\python -m yearvideo review my-year
 
 After you add/remove files in a month folder by hand:
-.venv\Scripts\yearvideo rescan my-year\01-October
+.venv\Scripts\python -m yearvideo rescan my-year\01-October
 
 
 STEP 4 - What to try in the editor, in this order
@@ -69,10 +69,14 @@ STEP 4 - What to try in the editor, in this order
 STEP 5 - Render from the command line (optional)
 -------------------------------------------------------------------------------------
 One month:
-.venv\Scripts\yearvideo render my-year\01-October
+.venv\Scripts\python -m yearvideo render my-year\01-October
 
 Whole year, joined into one video (my-year\year.mp4):
-.venv\Scripts\yearvideo year my-year
+.venv\Scripts\python -m yearvideo year my-year
+
+
+NOTE: commands use "python -m yearvideo" instead of "yearvideo" because Windows Application
+Control blocks the yearvideo.exe launcher on this PC. Both do the same thing.
 
 
 IF SOMETHING GOES WRONG
