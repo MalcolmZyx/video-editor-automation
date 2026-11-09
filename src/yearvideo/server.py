@@ -29,6 +29,7 @@ from .pipeline import (
     add_song,
     build_timeline,
     insert_card,
+    item_src,
     list_songs,
     load_config,
     load_timeline,
@@ -37,6 +38,7 @@ from .pipeline import (
     replan,
     save_timeline,
     song_path,
+    split_item,
     to_manual,
 )
 from .render import render_month
@@ -199,7 +201,7 @@ class Review:
         ids, entries = [], []
         for it in tl["items"]:
             if it["keep"] and it["kind"] in ("photo", "video"):
-                t = self.thumb(it["id"], it.get("src_in") or 0.0)
+                t = self.thumb(item_src(it), it.get("src_in") or 0.0)
                 if t:
                     ids.append(it["id"])
                     entries.append((t, ""))
@@ -253,7 +255,7 @@ class Review:
             for it in self.timeline()["items"]:
                 if it["kind"] == "video":
                     try:
-                        self.proxy_video(it["id"])
+                        self.proxy_video(item_src(it))
                     except (subprocess.CalledProcessError, OSError):
                         pass  # that clip just plays from the original file
 
@@ -466,6 +468,9 @@ def make_handler(app: App):
                         if other is None or other is rv:
                             return self._json({"error": "choose a different month to take from"}, 400)
                         self._json(rv.take_from(other, body.get("ids", [])))
+                elif u.path == "/api/split":
+                    tl = body["timeline"] if "timeline" in body else rv.timeline()
+                    self._json(rv.save(split_item(tl, float(body["at"]))))
                 elif u.path == "/api/themes":
                     self._json(rv.group_themes(body.get("action") != "ungroup", body.get("strictness") or themes.DEFAULT_STRICTNESS))
                 elif u.path == "/api/render":

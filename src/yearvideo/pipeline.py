@@ -197,6 +197,7 @@ def remove_song(tl: dict, ref: str) -> dict:
 def _base_item(item_id: str, kind: str) -> dict:
     return {
         "id": item_id,
+        "src": None,  # file path inside the month folder when it differs from id (a split-off piece)
         "kind": kind,
         "taken": None,
         "source_duration": None,
@@ -215,6 +216,41 @@ def _base_item(item_id: str, kind: str) -> dict:
         "transition_out": None,  # seconds; None = month default, 0 = cut
         "transition_align": None,  # start | center | end; None = month default
     }
+
+
+def item_src(it: dict) -> str:
+    """Which file a photo/clip plays: its own id unless it is a piece split off another item."""
+    return it.get("src") or it["id"]
+
+
+def split_item(tl: dict, at: float) -> dict:
+    """Cut the photo/clip/card under time `at` (seconds on the timeline) into two items.
+
+    Both halves get fixed lengths, so nothing around them is re-fitted. A video's second half starts where
+    the first stops; the join between the halves is a hard cut and the original outgoing transition moves
+    to the second half.
+    """
+    tl = replan(tl)
+    it = next((i for i in tl["items"] if i["keep"] and i.get("duration") and i["start"] <= at < i["start"] + i["duration"]), None)
+    if it is None:
+        raise ValueError("nothing to split at that time")
+    off = round(at - it["start"], 3)
+    if off < 0.2 or it["duration"] - off < 0.2:
+        raise ValueError("too close to the edge of the item to split there")
+    second = deepcopy(it)
+    second["id"] = uuid.uuid4().hex[:8] if it["kind"] == "card" else f"{it['id']}#{uuid.uuid4().hex[:6]}"
+    if it["kind"] != "card":
+        second["src"] = item_src(it)
+    if it["kind"] == "video":
+        second["src_in"] = round((it.get("src_in") or 0.0) + off, 3)
+        second["src_in_auto"] = it["src_in_auto"] = False  # both halves now play exactly what they show
+    second["duration_override"] = round(it["duration"] - off, 3)
+    second["fade_in"] = None
+    it["duration_override"] = off
+    it["fade_out"] = None if it.get("fade_out") is None else 0
+    it["transition_type"], it["transition_out"], it["transition_align"] = "cut", 0, None
+    tl["items"].insert(tl["items"].index(it) + 1, second)
+    return replan(tl)
 
 
 def _new_item(m, month_dir: Path, reason: str | None) -> dict:
@@ -416,8 +452,8 @@ def refresh_timeline(tl: dict, month_dir: Path) -> dict:
     catalog = scan_month(month_dir)
     on_disk = {m.id for m in catalog}
     dd = dedupe_photos(month_dir, catalog)
-    known = {i["id"] for i in tl["items"]}
-    tl["items"] = [i for i in tl["items"] if i["kind"] == "card" or i["id"] in on_disk]
+    known = {i["id"] for i in tl["items"]} | {item_src(i) for i in tl["items"] if i["kind"] != "card"}
+    tl["items"] = [i for i in tl["items"] if i["kind"] == "card" or item_src(i) in on_disk]
     for m in sorted(catalog, key=lambda m: (m.taken, m.id)):
         if m.id in known:
             continue

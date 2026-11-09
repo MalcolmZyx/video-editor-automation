@@ -88,6 +88,8 @@
   .blk { position:absolute; top:4px; height:36px; border-radius:5px; overflow:hidden; font-size:11px; padding:3px 5px; cursor:pointer;
          color:#fff; border:1px solid #fff4; white-space:nowrap; text-overflow:ellipsis; }
   .blk.sel { outline:2px solid #fff; z-index:3; }
+  .blk[data-ci] { cursor:grab; touch-action:none; }
+  .ins { position:absolute; top:0; bottom:0; width:3px; margin-left:-1px; background:#fff; box-shadow:0 0 0 1px #000a; z-index:7; pointer-events:none; }
   .blk.cap { background:var(--cap); color:#1b1230; cursor:grab; }
   .blk .h { position:absolute; top:0; width:7px; height:100%; cursor:ew-resize; background:#0004; }
   .blk .h.l { left:0; } .blk .h.r { right:0; }
@@ -176,9 +178,11 @@
   <div id="tlwrap">
     <div id="tlbar">
       <button id="btnDock" title="Collapse / expand the editor">⇵</button>
+      <button id="btnSplit" title="Cut the picture/clip under the playhead in two (S)">✂ Split</button><button class="i" data-k="split">i</button>
       <button id="btnAddCap">+ Caption at current time</button><button class="i" data-k="caption">i</button>
       <select id="layerSel" title="Pick a song to play ON TOP of the main music"></select>
       <button id="btnAddLayer">+ Add song layer</button><button class="i" data-k="layer">i</button>
+      <button class="i" data-k="clips" title="How to edit the Clips row">i</button>
       <label>Zoom <input id="zoom" type="range" min="1" max="12" step="0.5" value="1"></label>
       <span id="stale" class="badge" style="display:none"></span>
     </div>
@@ -228,6 +232,8 @@ const INFO = {
   mode: "How songs are fitted to the month's length.\n\nfit — use ONE song from where the real music starts to where it ends (skipping silent intro and trailing quiet). Works when the month's photos/clips naturally add up to about that length.\n\nloop_cut — use only the first section of the song (e.g. through the first chorus), fade it out, and add another song if the month is longer.\n\nmulti_song — play several songs back to back until the month is filled.\n\nshared_song — use part of a song and continue it in the next month.\n\nmanual — YOU place and trim every song in the timeline (the month length follows your music).",
   section: "Only used by loop_cut. The song is divided into sections (verse, chorus...). 0 = stop after the first section, 1 = after the second, and so on.",
   manual: "Turns the automatic music plan into clips you can drag, trim and re-time yourself in the timeline. The month length then follows your music. You can switch back to an automatic mode any time (your hand-made clips are kept).",
+  split: "Cuts whatever is under the playhead into two pieces (shortcut: S). For a video the second piece carries on from where the first stops, so you can drop the middle, move the halves apart, or put a caption or colour card between them. Move the playhead first by clicking the ruler.",
+  clips: "On the Clips row: drag a block to move it (a white line shows where it will land), drag the right edge to change its length, and the left edge of a video to trim its start. Clips after it follow. Backspace removes the selected one, Ctrl+Z undoes.",
   join: "The change between two neighbouring pictures/clips (the diamonds on the Clips row). Every join can have its own style, length and blend position, whatever the two sides are (photo → video, video → card, ...). Leave a field on 'default' to follow the month setting. Select a diamond and press Backspace to make it a hard cut.",
   delete: "Backspace or Delete removes whatever is selected in the timeline: a caption, a song, a clip (it goes to 'Dropped' so you can restore it), a colour card, or (for a transition) turns it into a hard cut. Ctrl+Z undoes.",
   manual_len: "The length of the month in manual music mode. The photos and clips are re-timed to fit this length. Dragging a song in the timeline no longer changes it, so you can slide music around freely. 'Follow the music' sets the length to where your music ends.",
@@ -285,6 +291,7 @@ const i = (k) => `<button class="i" data-k="${k}" title="What is this?">i</butto
 const getp = (o, p) => p.split('.').reduce((a, k) => (a == null ? a : a[k]), o);
 const setp = (o, p, v) => { const ks = p.split('.'); const last = ks.pop(); ks.reduce((a, k) => a[k], o)[last] = v; };
 const hex = (c) => /^#[0-9a-f]{6}$/i.test(c) ? c : ({black:'#000000', white:'#ffffff'}[String(c).toLowerCase()] || '#000000');
+const isrc = (it) => it.src || it.id;
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const uid = () => Math.random().toString(16).slice(2, 10);
 
@@ -352,6 +359,7 @@ document.addEventListener('keydown', (e) => {
   if (/INPUT|TEXTAREA|SELECT/.test(tag) || (ae && ae.isContentEditable) || $('modal').style.display === 'grid') return;
   if (e.key === ' ' && tag !== 'BUTTON' && tab === 'live') { e.preventDefault(); togglePlay(); }
   else if ((e.key === 'Backspace' || e.key === 'Delete') && sel) { e.preventDefault(); deleteSelected(); }
+  else if (e.key.toLowerCase() === 's' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); splitHere(); }
   else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
 });
 
@@ -371,6 +379,7 @@ async function init() {
     b.disabled = false; b.textContent = old;
   };
   $('btnGroup').onclick = grouper('group'); $('btnUngroup').onclick = grouper('ungroup');
+  $('btnSplit').onclick = splitHere;
   $('btnAddCard').onclick = async () => { await act('/api/card', {}); drawAll(); };
   $('btnAddCap').onclick = () => addCaption(curTime());
   $('btnAddLayer').onclick = addLayer;
@@ -396,6 +405,31 @@ async function init() {
     const c = tl.music.clips[0]; c.start = 5; tl = await api('/api/timeline', tl); drawAll();
     log.push('total:' + tl.total, 'start:' + tl.audio_clips[0].start);
     document.title = 'MAN ' + log.join(' | ');
+  }
+  if (location.hash === '#clipdrag') {
+    const log = []; window.onerror = (m) => log.push('JSERR ' + m);
+    const wait = (ms) => new Promise(r => setTimeout(r, ms));
+    const fire = (el, type, x) => el.dispatchEvent(new PointerEvent(type, { bubbles:true, clientX:x, clientY:10, pointerId:1 }));
+    const ids = () => kept().map(x => x.id.split('/').pop());
+    const mid = (b) => { const r = b.getBoundingClientRect(); return (r.left + r.right) / 2; };
+    log.push('before:' + ids().join(','), 'total:' + tl.total.toFixed(1));
+    // 1. drag the FIRST clip past the third: it must land after it
+    let b = document.querySelector('#laneC [data-ci]'), x = mid(b), p = pps();
+    const third = kept()[2], dx = (third.start + third.duration / 2) * p - (kept()[0].start + kept()[0].duration / 2) * p + 4;
+    fire(b, 'pointerdown', x); fire(b, 'pointermove', x + dx); fire(b, 'pointerup', x + dx);
+    await wait(1200); log.push('moved:' + ids().join(','));
+    // 2. drag the right edge of the first clip: 1.5 s longer
+    const id0 = kept()[0].id, d0 = kept()[0].duration;
+    b = document.querySelector(`#laneC [data-ci="${CSS.escape(id0)}"]`); const h = b.querySelector('.h.r'), hx = h.getBoundingClientRect().left + 3;
+    fire(h, 'pointerdown', hx); fire(h, 'pointermove', hx + 1.5 * pps()); fire(h, 'pointerup', hx + 1.5 * pps());
+    await wait(1200); log.push('len:' + d0.toFixed(2) + '->' + kept()[0].duration.toFixed(2));
+    // 3. split at the playhead
+    setTime(kept()[1].start + 1); const n = kept().length; await splitHere(); await wait(600);
+    log.push('split:' + n + '->' + kept().length);
+    // 4. undo walks it back
+    for (let k = 0; k < 3; k++) await undo();
+    log.push('undone:' + ids().join(','));
+    document.title = 'DRAG ' + log.join(' | ');
   }
   if (location.hash === '#feat') {
     const log = []; window.onerror = (m) => log.push('JSERR ' + m);
@@ -579,7 +613,7 @@ function card(it, idx) {
   if (it.kind === 'card') head = `<div class="thumb" data-f="sel" style="background:${esc(it.color)};color:${esc(it.text_color)}">${esc(it.text || 'colour card')}</div>`;
   else {
     const t = it.kind === 'video' ? `?t=${it.src_in || 0}` : '';
-    head = `<img class="thumb" data-f="sel" loading="lazy" src="/thumb/${encodeURIComponent(cur)}/${enc(it.id)}${t}">`;
+    head = `<img class="thumb" data-f="sel" loading="lazy" src="/thumb/${encodeURIComponent(cur)}/${enc(isrc(it))}${t}">`;
   }
   const defTrans = `default (${tl.transition.type}${tl.transition.type === 'cut' ? '' : ' ' + tl.transition.seconds + 's'})`;
   const last = keptIdx().slice(-1)[0] === idx;
@@ -718,11 +752,11 @@ function mediaFor(it) {
   let el = media.get(it.id);
   if (el) return el;
   const stage = $('stage');
-  if (it.kind === 'photo') { el = document.createElement('img'); el.src = `/img/${encodeURIComponent(cur)}/${enc(it.id)}`; }
+  if (it.kind === 'photo') { el = document.createElement('img'); el.src = `/img/${encodeURIComponent(cur)}/${enc(isrc(it))}`; }
   else if (it.kind === 'video') {
     el = document.createElement('video'); el.preload = 'auto'; el.playsInline = true; el.muted = true;
-    el.src = `/vproxy/${encodeURIComponent(cur)}/${enc(it.id)}`;
-    el.onerror = () => { if (!el.dataset.fb) { el.dataset.fb = 1; el.src = `/media/${encodeURIComponent(cur)}/${enc(it.id)}`; } };
+    el.src = `/vproxy/${encodeURIComponent(cur)}/${enc(isrc(it))}`;
+    el.onerror = () => { if (!el.dataset.fb) { el.dataset.fb = 1; el.src = `/media/${encodeURIComponent(cur)}/${enc(isrc(it))}`; } };
   } else { el = document.createElement('div'); el.style.display = 'grid'; el.style.placeItems = 'center'; el.style.textAlign = 'center'; el.style.padding = '8%'; }
   el.className = 'm';
   stage.insertBefore(el, $('fadeov'));
@@ -1002,7 +1036,7 @@ function drawTimeline() {
     const bg = it.kind === 'card' ? esc(it.color) : it.kind === 'video' ? '#2d6cdf' : '#3a8f6b';
     const fg = it.kind === 'card' ? `color:${esc(it.text_color)}` : '';
     const label = it.kind === 'card' ? (it.text || 'card') : it.id.split('/').pop();
-    return `<div class="blk ${sel && sel.type === 'item' && sel.id === it.id ? 'sel' : ''}" data-ci="${esc(it.id)}" style="left:${it.start * pps()}px;width:${Math.max(it.duration * pps() - 2, 3)}px;background:${bg};${fg}" title="${esc(label)} · ${fmt(it.duration)}s">${esc(label)}</div>`;
+    return `<div class="blk ${sel && sel.type === 'item' && sel.id === it.id ? 'sel' : ''}" data-ci="${esc(it.id)}" style="left:${it.start * pps()}px;width:${Math.max(it.duration * pps() - 2, 3)}px;background:${bg};${fg}" title="${esc(label)} · ${fmt(it.duration)}s — drag to move, drag the edges to change the length">${it.kind === 'video' ? '<span class="h l" data-h="l"></span>' : ''}${esc(label)}<span class="h r" data-h="r"></span></div>`;
   }).join('');
   const K = kept(), trs = planTrans(K);
   const joins = K.slice(0, -1).map((it, n) => `<div class="join ${trs[n].secs > 0 ? '' : 'cut'} ${sel && sel.type === 'join' && sel.id === it.id ? 'sel' : ''}" data-join="${esc(it.id)}" style="left:${K[n + 1].start * pps()}px" title="${it.kind} → ${K[n + 1].kind}: ${trs[n].secs > 0 ? trs[n].type + ' ' + fmt(trs[n].secs) + 's' : 'hard cut'}"></div>`).join('');
@@ -1023,7 +1057,7 @@ function drawTimeline() {
   host.innerHTML = `<div class="ruler" id="ruler">${ticks}</div>
     <div class="lane" data-name="Clips" id="laneC">${clips}${joins}</div>
     <div class="lane" data-name="Captions" id="laneT">${caps}</div>${musLanes}<div id="playhead"></div>`;
-  host.querySelectorAll('[data-ci]').forEach(b => b.onclick = () => selectItem(b.dataset.ci, false, true));
+  host.querySelectorAll('[data-ci]').forEach(b => b.onpointerdown = (e) => clipDrag(e, b));
   host.querySelectorAll('[data-join]').forEach(b => b.onclick = (e) => { e.stopPropagation(); selectJoin(b.dataset.join); });
   host.querySelectorAll('[data-cap]').forEach(b => b.onpointerdown = (e) => tlDrag(e, b, 'cap'));
   host.querySelectorAll('[data-mc]').forEach(b => b.onpointerdown = (e) => tlDrag(e, b, 'mc'));
@@ -1073,6 +1107,59 @@ function tlDrag(e, el, kind) {
     fillCapFields(ref);
   };
   el.onpointerup = () => { el.onpointermove = el.onpointerup = null; dragging = false; document.querySelectorAll('#tl .lane.drop').forEach(l => l.classList.remove('drop')); saveSoon(); };
+}
+// Move a clip (drop it between two others) or drag its edges to change the length; later clips follow.
+function clipDrag(e, el) {
+  e.stopPropagation();
+  const id = el.dataset.ci, it = tl.items.find(x => x.id === id); if (!it) return;
+  const mode = e.target.dataset.h || 'm', x0 = e.clientX, p = pps();
+  const K = kept(), n0 = K.findIndex(x => x.id === id);
+  const snap = { dur: it.duration, in: it.src_in || 0 };
+  const lane = $('laneC');
+  const after = [...lane.querySelectorAll('[data-ci],[data-join]')].filter(b => (b.dataset.ci ? K.findIndex(x => x.id === b.dataset.ci) > n0 : parseFloat(b.style.left) > (it.start + it.duration) * p - 1));
+  const marker = document.createElement('div'); marker.className = 'ins'; marker.style.display = 'none'; lane.appendChild(marker);
+  let moved = false, target = n0, dur = snap.dur, newIn = snap.in;
+  dragging = true; try { el.setPointerCapture(e.pointerId); } catch (_) { /* synthetic events in tests */ }
+  el.onpointermove = (ev) => {
+    const dx = ev.clientX - x0;
+    if (!moved && Math.abs(dx) < 4) return;
+    moved = true;
+    if (mode === 'm') {
+      el.style.transform = `translateX(${dx}px)`; el.style.zIndex = 6; el.style.opacity = '.85';
+      const centre = it.start + dx / p + it.duration / 2, others = K.filter(x => x.id !== id);
+      target = 0; while (target < others.length && others[target].start + others[target].duration / 2 < centre) target++;
+      const last = others[others.length - 1];
+      marker.style.left = (target < others.length ? others[target].start : last.start + last.duration) * p + 'px'; marker.style.display = '';
+      return;
+    }
+    const dt = dx / p;
+    if (mode === 'r') {
+      const room = it.kind === 'video' ? Math.max(.3, (it.source_duration || 1e9) - (it.src_in || 0)) : 900;
+      dur = clamp(snap.dur + dt, .3, room);
+    } else {                                   // left edge of a clip: trim its start; the end stays on the source
+      const dd = clamp(dt, -snap.in, snap.dur - .3); dur = snap.dur - dd; newIn = snap.in + dd;
+    }
+    el.style.width = Math.max(dur * p - 2, 3) + 'px';
+    after.forEach(b => { b.style.transform = `translateX(${(dur - snap.dur) * p}px)`; });
+  };
+  el.onpointerup = () => {
+    el.onpointermove = el.onpointerup = null; dragging = false; marker.remove();
+    if (!moved) { selectItem(id, false, true); return; }
+    if (mode === 'm') {
+      if (target === n0) { drawTimeline(); return; }
+      const slots = tl.items.map((x, n) => x.keep && x.duration ? n : -1).filter(n => n >= 0), order = slots.map(n => tl.items[n]);
+      order.splice(target, 0, order.splice(n0, 1)[0]); slots.forEach((n, k) => { tl.items[n] = order[k]; });
+    } else {
+      it.duration_override = Math.round(dur * 100) / 100;
+      if (mode === 'l') { it.src_in = Math.round(newIn * 100) / 100; it.src_in_auto = false; }
+    }
+    sel = { type:'item', id }; saveSoon();
+  };
+}
+async function splitHere() {
+  if (tab !== 'live') return toast('Switch to the live preview to split at the playhead');
+  await save();
+  try { await act('/api/split', { at: curTime(), timeline: tl }); drawAll(); } catch (e) { /* api() already showed why */ }
 }
 function selectJoin(id) {
   sel = { type:'join', id };
@@ -1268,7 +1355,7 @@ function openTrim(it) {
   trimItem = it;
   const src = it.source_duration || 0, a0 = it.src_in || 0, b0 = Math.min(src, a0 + (it.duration || 3));
   $('trimbox').innerHTML = `<div class="row"><b>Trim ${esc(it.id.split('/').pop())}</b><button id="trimX">✕</button></div>
-    <video id="tv" controls src="/vproxy/${encodeURIComponent(cur)}/${enc(it.id)}"></video>
+    <video id="tv" controls src="/vproxy/${encodeURIComponent(cur)}/${enc(isrc(it))}"></video>
     <div id="range"><div class="sel" id="rsel"></div><div class="ph" id="rph"></div>
       <input type="range" id="rA" min="0" max="${src}" step="0.1" value="${a0}"><input type="range" id="rB" min="0" max="${src}" step="0.1" value="${b0}"></div>
     <div class="row"><span><label>starts at <input type="number" id="nA" step="0.1" min="0" max="${src}" value="${a0.toFixed(1)}"></label>
@@ -1279,7 +1366,7 @@ function openTrim(it) {
     <div class="row"><span><button id="playSel">▶ Play selection</button> <button id="auto">Use auto (best moment)</button> ${i('trim')}</span>
       <span><button id="trimOk" class="primary">Save</button></span></div>`;
   const A = $('rA'), B = $('rB'), nA = $('nA'), nB = $('nB'), tv = $('tv');
-  tv.onerror = () => { if (!tv.dataset.fb) { tv.dataset.fb = 1; tv.src = `/media/${encodeURIComponent(cur)}/${enc(it.id)}`; } };
+  tv.onerror = () => { if (!tv.dataset.fb) { tv.dataset.fb = 1; tv.src = `/media/${encodeURIComponent(cur)}/${enc(isrc(it))}`; } };
   const upd = (from) => {
     let a = parseFloat(from === 'n' ? nA.value : A.value) || 0, b = parseFloat(from === 'n' ? nB.value : B.value) || 0;
     if (b - a < 0.3) { if (from === 'B' || from === 'nb') a = Math.max(0, b - 0.3); else b = Math.min(src, a + 0.3); }

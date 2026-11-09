@@ -82,3 +82,10 @@ different people at different times) and puts them together. Time stays in charg
 photo was taken and everything else keeps its time position. Strictness: very strict / strict (default) / loose; **Ungroup (by time)** restores capture order.
 It only looks at items that are still *kept*, so duplicates you dropped are ignored. The model (~150 MB) downloads on
 first use into `~/.yearvideo/models`.
+
+## Editing on the timeline (like a video editor)
+
+On the **Clips** row: drag a block to move it (a white line shows where it lands), drag its right edge to change the
+length, drag the left edge of a video to trim its start. Clips after it follow. **S** (or "✂ Split") cuts the
+picture/clip under the playhead in two; a video's second half carries on where the first stops. Backspace removes the
+selected item and Ctrl+Z undoes any of it.

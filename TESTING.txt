@@ -62,8 +62,10 @@ STEP 4 - What to try in the editor, in this order
  4. Take from other months (bottom of the page, year folder only): tick photos from
     another month and press "Move N selected here". This MOVES the files on disk
     (cut and paste). Each moved item shows "from <month>" with a "send back" button.
- 5. Music panel: add the song, try beat sync, fades.
- 6. Click "Render preview" (fast, small), then "Render final".
+ 5. Timeline editing: drag clips on the Clips row to reorder, drag block edges to change length,
+    press S to split at the playhead, Backspace to delete, Ctrl+Z to undo.
+ 6. Music panel: add the song, try beat sync, fades.
+ 7. Click "Render preview" (fast, small), then "Render final".
  Keyboard: Space = play/pause, Backspace/Delete = remove selected, Ctrl+Z = undo.
 
 
