@@ -72,6 +72,10 @@ STEP 4 - What to try in the editor, in this order
     in the year folder (link appears next to the button). One render runs at a time. The month you
     are on is remembered in the address (?m=...), and a second window with an older copy of a
     month is refused (you are offered a reload) instead of overwriting newer edits.
+ 5c. Reorder the storyboard by dragging a picture's thumbnail onto another card (white bar shows
+    whether it lands before or after). Layout: drag the thin bar above the editor to make it taller or
+    shorter, drag the vertical edges of the preview / inspector to resize them; double-click a bar to
+    reset. Sizes are remembered.
  6. Timeline editing: drag clips on the Clips row to reorder, drag block edges to change length,
     press S to split at the playhead, Backspace to delete, Ctrl+Z to undo.
  7. Month settings > Lengths > tick "Manual timing": lengths stay exactly as you set them, the month

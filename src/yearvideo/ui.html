@@ -56,7 +56,18 @@
   .song.in { border-left:3px solid var(--mus); }
 
   /* ---------- editor dock ---------- */
-  #dock { background:var(--panel); border-top:2px solid var(--line); height:380px; display:grid; grid-template-columns:420px minmax(0,1fr) 310px; min-height:0; }
+  #dock { position:relative; background:var(--panel); border-top:2px solid var(--line); height:var(--dockh, 380px); display:grid; grid-template-columns:var(--pw, 420px) minmax(0,1fr) var(--iw, 310px); min-height:0; }
+  #dockGrip { height:9px; margin-top:-4px; cursor:ns-resize; background:transparent; position:relative; z-index:20; flex:none; }
+  #dockGrip::after { content:''; position:absolute; left:50%; top:3px; width:56px; height:3px; margin-left:-28px; border-radius:2px; background:var(--mut); opacity:.6; }
+  #dockGrip:hover::after, #dockGrip.on::after { background:var(--acc); opacity:1; }
+  .vgrip { position:absolute; top:0; bottom:0; width:9px; margin-left:-4px; cursor:ew-resize; z-index:20; }
+  .vgrip:hover, .vgrip.on { background:#5aa9ff55; }
+  #dock.min .vgrip { display:none; }
+  body.resizing { user-select:none; }
+  .card .thumb[draggable=true] { cursor:grab; }
+  .card.dropL { box-shadow:inset 5px 0 0 #fff, 0 0 0 1px var(--acc); }
+  .card.dropR { box-shadow:inset -5px 0 0 #fff, 0 0 0 1px var(--acc); }
+  .card.dragging { opacity:.4; }
   #dock.min { height:44px; }
   #dock.min #player, #dock.min #tlscroll, #dock.min #insp { display:none; }
   #player { padding:8px 10px; display:grid; grid-template-rows:auto auto 1fr; gap:6px; min-height:0; border-right:1px solid var(--line); align-content:start; overflow:auto; }
@@ -180,6 +191,7 @@
   <div style="height:20px"></div>
 </main>
 
+<div id="dockGrip" title="Drag to make the editor taller or shorter (double-click: reset)"></div>
 <section id="dock">
   <div id="player">
     <div class="tabs">
@@ -207,6 +219,7 @@
     <div id="tlscroll"><div id="tl"></div></div>
   </div>
   <div id="insp"></div>
+  <div class="vgrip" id="gripP" title="Drag to resize the preview"></div><div class="vgrip" id="gripI" title="Drag to resize the inspector"></div>
 </section>
 
 <div id="modal"><div class="box" id="trimbox"></div></div>
@@ -387,8 +400,34 @@ document.addEventListener('keydown', (e) => {
   else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
 });
 
+// ------------------------------------------------------------------ resizable editor
+function initResize() {
+  const dock = $('dock'), root = document.documentElement.style;
+  const store = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (_) { /* private mode */ } };
+  const load = (k) => { try { return localStorage.getItem(k); } catch (_) { return null; } };
+  const apply = { dockh: (v) => root.setProperty('--dockh', v + 'px'), pw: (v) => root.setProperty('--pw', v + 'px'), iw: (v) => root.setProperty('--iw', v + 'px') };
+  for (const k of Object.keys(apply)) { const v = parseFloat(load('yv_' + k)); if (v > 0) apply[k](v); }
+  const drag = (grip, key, calc, reset) => {
+    grip.onpointerdown = (e) => {
+      e.preventDefault(); grip.classList.add('on'); document.body.classList.add('resizing');
+      try { grip.setPointerCapture(e.pointerId); } catch (_) { /* synthetic events */ }
+      let last = null;
+      grip.onpointermove = (ev) => { last = Math.round(calc(ev)); apply[key](last); drawTimeline(); };
+      grip.onpointerup = () => { grip.onpointermove = grip.onpointerup = null; grip.classList.remove('on'); document.body.classList.remove('resizing'); if (last != null) store('yv_' + key, last); };
+    };
+    grip.ondblclick = () => { root.removeProperty('--' + key); store('yv_' + key, null); drawTimeline(); };
+  };
+  drag($('dockGrip'), 'dockh', (ev) => clamp(innerHeight - ev.clientY, 120, innerHeight - 150));
+  const dockLeft = () => dock.getBoundingClientRect().left;
+  drag($('gripP'), 'pw', (ev) => clamp(ev.clientX - dockLeft(), 200, innerWidth - 560));
+  drag($('gripI'), 'iw', (ev) => clamp(dock.getBoundingClientRect().right - ev.clientX, 180, innerWidth - 500));
+  const place = () => { const cs = getComputedStyle(dock).gridTemplateColumns.split(' ').map(parseFloat); $('gripP').style.left = cs[0] + 'px'; $('gripI').style.left = (cs[0] + cs[1]) + 'px'; };
+  new ResizeObserver(place).observe(dock); place();
+}
+
 // ------------------------------------------------------------------ loading
 async function init() {
+  initResize();
   await loadMonths();
   $('monthSel').onchange = () => loadMonth($('monthSel').value);
   $('btnCombine').onclick = openCombine;
@@ -474,6 +513,38 @@ async function init() {
     $('btnSplitBack').click(); await wait(2500);
     log.push('back:' + cur, 'dd2:' + [...$('monthSel').options].map(o => o.value).join(','));
     document.title = 'COMBINE ' + log.join(' | ');
+  }
+  if (location.hash === '#reorder') {
+    const log = []; window.onerror = (m) => log.push('JSERR ' + m);
+    const wait = (ms) => new Promise(r => setTimeout(r, ms));
+    const ids = () => kept().map(x => x.id);
+    const o0 = ids();
+    const cards = () => [...document.querySelectorAll('#kept .card')];
+    const dt = new DataTransfer();
+    cards()[0].querySelector('.thumb').dispatchEvent(new DragEvent('dragstart', { bubbles:true, dataTransfer: dt }));
+    const tgt = cards()[3], r = tgt.getBoundingClientRect();
+    tgt.dispatchEvent(new DragEvent('dragover', { bubbles:true, cancelable:true, clientX:r.right - 3, clientY:r.top + 20, dataTransfer: dt }));
+    log.push('hint:' + tgt.classList.contains('dropR'));
+    tgt.dispatchEvent(new DragEvent('drop', { bubbles:true, cancelable:true, clientX:r.right - 3, clientY:r.top + 20, dataTransfer: dt }));
+    await wait(1500);
+    const o1 = ids();
+    log.push('first->after4th:' + (o1[3] === o0[0] && o1[0] === o0[1]), 'sameCount:' + (o1.length === o0.length));
+    const dt2 = new DataTransfer(); cards()[4].querySelector('.thumb').dispatchEvent(new DragEvent('dragstart', { bubbles:true, dataTransfer: dt2 }));
+    const t2 = cards()[0], r2 = t2.getBoundingClientRect();
+    t2.dispatchEvent(new DragEvent('dragover', { bubbles:true, cancelable:true, clientX:r2.left + 3, clientY:r2.top + 20, dataTransfer: dt2 }));
+    t2.dispatchEvent(new DragEvent('drop', { bubbles:true, cancelable:true, clientX:r2.left + 3, clientY:r2.top + 20, dataTransfer: dt2 }));
+    await wait(1500);
+    log.push('5th->front:' + (ids()[0] === o1[4]));
+    const h0 = $('dock').getBoundingClientRect().height, g = $('dockGrip'), gr = g.getBoundingClientRect();
+    const fire = (el, type, x, y) => el.dispatchEvent(new PointerEvent(type, { bubbles:true, clientX:x, clientY:y, pointerId:1 }));
+    fire(g, 'pointerdown', 100, gr.top + 4); fire(g, 'pointermove', 100, gr.top - 120); fire(g, 'pointerup', 100, gr.top - 120);
+    log.push('taller:' + Math.round(h0) + '->' + Math.round($('dock').getBoundingClientRect().height));
+    const p0 = $('player').getBoundingClientRect().width, gp = $('gripP');
+    fire(gp, 'pointerdown', p0, 300); fire(gp, 'pointermove', p0 + 100, 300); fire(gp, 'pointerup', p0 + 100, 300);
+    log.push('player:' + Math.round(p0) + '->' + Math.round($('player').getBoundingClientRect().width));
+    g.dispatchEvent(new MouseEvent('dblclick', { bubbles:true }));
+    log.push('reset:' + Math.round($('dock').getBoundingClientRect().height));
+    document.title = 'REORDER ' + log.join(' | ');
   }
   if (location.hash === '#media') {
     const log = []; window.onerror = (m) => log.push('JSERR ' + m);
@@ -826,6 +897,15 @@ function card(it, idx) {
       saveSoon();
     };
   });
+  const th = d.querySelector('.thumb');
+  if (it.keep && th) {                       // drag the picture to reorder (the arrows still work)
+    th.draggable = true;
+    th.ondragstart = (e) => {
+      e.dataTransfer.setData('text/plain', JSON.stringify({ month: cur, ids: [it.id] })); e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setDragImage(d, 20, 20); d.classList.add('dragging');
+    };
+    th.ondragend = () => { d.classList.remove('dragging'); document.querySelectorAll('.card.dropL,.card.dropR').forEach(c => c.classList.remove('dropL', 'dropR')); };
+  }
   return d;
 }
 const borrowedFrom = (it) => (tl.borrowed || []).find(b => b.id === it.id);
@@ -838,6 +918,7 @@ async function addMedia(month, ids, t) {
   if (tl.combined_from) return toast('This is a combined month; its pictures stay in their original folders.');
   const before = beforeIdAt(t);
   if (month === cur) {                       // this month's own files: bring dropped ones back, or move them
+    if (ids.includes(before)) return;       // dropped onto itself: nothing to do
     for (const id of ids) {
       const it = tl.items.find(x => x.id === id); if (!it) continue;
       tl.items = tl.items.filter(x => x !== it); it.keep = true;
@@ -911,7 +992,21 @@ function themeLegend() {
     `<span class="badge" style="border-left:5px solid hsl(${(k * 67) % 360} 65% 55%)">${esc(t)} · ${c}</span>`);
   $('themeLegend').innerHTML = parts.length ? 'Themes: ' + parts.join(' ') : '';
 }
+function wireStoryboardDrop() {
+  const box = $('kept');
+  const target = (e) => { const c = e.target.closest('.card'); if (!c || !box.contains(c)) return null; const r = c.getBoundingClientRect(); return { c, right: e.clientX > r.left + r.width / 2 }; };
+  const clear = () => box.querySelectorAll('.dropL,.dropR').forEach(c => c.classList.remove('dropL', 'dropR'));
+  box.ondragover = (e) => { const t = target(e); if (!t) return; e.preventDefault(); clear(); t.c.classList.add(t.right ? 'dropR' : 'dropL'); };
+  box.ondragleave = (e) => { if (!box.contains(e.relatedTarget)) clear(); };
+  box.ondrop = (e) => {
+    const t = target(e); clear(); if (!t) return; e.preventDefault();
+    let d; try { d = JSON.parse(e.dataTransfer.getData('text/plain')); } catch (_) { return; }
+    const to = tl.items.find(x => x.id === t.c.dataset.id); if (!d || !d.ids || !to || !to.keep) return;
+    addMedia(d.month, d.ids, t.right ? to.start + to.duration : to.start);
+  };
+}
 function drawStoryboard() {
+  wireStoryboardDrop();
   themeLegend();
   if (drawStoryboard.month !== cur) { drawStoryboard.month = cur; mediaData = null; mediaPick.clear(); mediaTab = cur; }
   if (!mediaData) drawBorrow();
