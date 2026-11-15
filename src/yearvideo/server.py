@@ -37,6 +37,7 @@ from .pipeline import (
     remove_song,
     replan,
     save_timeline,
+    set_manual_timing,
     song_path,
     split_item,
     to_manual,
@@ -468,6 +469,10 @@ def make_handler(app: App):
                         if other is None or other is rv:
                             return self._json({"error": "choose a different month to take from"}, 400)
                         self._json(rv.take_from(other, body.get("ids", [])))
+                elif u.path == "/api/timing":
+                    tl = body["timeline"] if "timeline" in body else rv.timeline()
+                    act = body.get("action")
+                    self._json(rv.save(set_manual_timing(tl, act == "on", release=act == "release")))
                 elif u.path == "/api/split":
                     tl = body["timeline"] if "timeline" in body else rv.timeline()
                     self._json(rv.save(split_item(tl, float(body["at"]))))

@@ -346,6 +346,7 @@ def _fill_defaults(tl: dict) -> None:
     for src, dst in SETTINGS.items():
         tl[dst] = {**cfg[src], **tl.get(dst, {})}
     tl.setdefault("captions", [])
+    tl.setdefault("manual_timing", False)
     m = tl.setdefault("music", {})
     m.setdefault("mode", cfg["music"]["mode"])
     m.setdefault("section", 0)
@@ -401,7 +402,8 @@ def replan(tl: dict) -> dict:
         beat_strength=tl["beat_strength"],
         beat_every=tl["beat_every"],
         audio_override=override,
-    ) if not (manual and override is None) else plan_month(items, [], "fit", Limits(**tl["limits"]))
+        manual_timing=bool(tl.get("manual_timing")),
+    ) if not (manual and override is None) else plan_month(items, [], "fit", Limits(**tl["limits"]), manual_timing=bool(tl.get("manual_timing")))
     planned = {p.id: p for p in plan.items}
     for i in tl["items"]:
         p = planned.get(i["id"])
@@ -432,6 +434,26 @@ def replan(tl: dict) -> dict:
     tl["total"], tl["fits"], tl["note"] = plan.total, plan.fits, plan.note
     tl["next_offset"] = plan.next_offset
     return tl
+
+
+def set_manual_timing(tl: dict, on: bool, release: bool = False) -> dict:
+    """Manual timing: nothing is re-fitted to the music, every item keeps the length it has.
+
+    Switching it on first pins each item at its current length, so nothing visibly moves. `release`
+    forgets every pinned photo/clip length (colour cards keep theirs) and goes back to automatic.
+    """
+    tl = replan(tl)
+    if release:
+        for it in tl["items"]:
+            if it["kind"] != "card":
+                it["duration_override"] = None
+        on = False
+    elif on:
+        for it in tl["items"]:
+            if it["keep"] and it.get("duration") and it["duration_override"] is None:
+                it["duration_override"] = round(it["duration"], 3)
+    tl["manual_timing"] = on
+    return replan(tl)
 
 
 def save_timeline(tl: dict, path: Path) -> None:

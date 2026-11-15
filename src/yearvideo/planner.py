@@ -71,6 +71,15 @@ def _bounds(item: Item, lim: Limits) -> tuple[float, float]:
     return min(lim.video_min, hi), hi
 
 
+def natural_length(item: Item, lim: Limits) -> float:
+    """What an item with no length of its own gets when nothing is being fitted to music."""
+    if item.duration_override is not None:
+        return item.duration_override
+    if item.kind != "video":
+        return (lim.photo_min + lim.photo_max) / 2
+    return min(lim.video_max, item.source_duration or lim.video_max)
+
+
 def _nearest(sorted_vals: list[float], x: float) -> float:
     i = bisect_left(sorted_vals, x)
     cands = sorted_vals[max(0, i - 1) : i + 1]
@@ -212,12 +221,28 @@ def plan_month(
     beat_strength: float = 0.6,
     beat_every: int = 1,
     audio_override: tuple[float, list[float]] | None = None,
+    manual_timing: bool = False,
 ) -> MonthPlan:
     """Plan one month. `audio_override` = (length, beat times) when the music is arranged by hand."""
     lim = limits or Limits()
     kept = [i for i in items if i.keep]
     if not kept:
         return MonthPlan([], [], 0.0, False, "nothing to plan")
+
+    if manual_timing:  # every item keeps the length it has; the month is as long as they add up to
+        planned, t = [], 0.0
+        for item in kept:
+            d = natural_length(item, lim)
+            planned.append(PlannedItem(item.id, round(t, 3), round(d, 3)))
+            t += d
+        audio, music_len, next_off = [], 0.0, None
+        if audio_override is not None:
+            music_len = audio_override[0]
+        elif tracks:
+            audio, music_len, _ = _build_audio(tracks, mode, t, t, offset, section)
+            next_off = audio[-1].end if audio and mode == "shared_song" else None
+        note = f"music {music_len:.0f}s, pictures {t:.0f}s" if tracks or audio_override is not None else ""
+        return MonthPlan(planned, audio, round(t, 3), True, note, next_off)
 
     bounds = [_bounds(i, lim) for i in kept]
     if not tracks and audio_override is None:  # photos-only month: use the middle of every length range

@@ -89,3 +89,10 @@ On the **Clips** row: drag a block to move it (a white line shows where it lands
 length, drag the left edge of a video to trim its start. Clips after it follow. **S** (or "✂ Split") cuts the
 picture/clip under the playhead in two; a video's second half carries on where the first stops. Backspace removes the
 selected item and Ctrl+Z undoes any of it.
+
+### Manual timing
+
+In **Month settings → Lengths**, tick **Manual timing** and nothing is stretched or squeezed to match the music any
+more: every picture/clip keeps the length it has (turning it on pins the current lengths, so nothing visibly
+changes) and the month is as long as the pictures add up to. A shorter song just ends; a longer one is cut. The top
+status line shows music vs picture length. **Release all lengths** goes back to automatic fitting.

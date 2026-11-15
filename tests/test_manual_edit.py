@@ -7,6 +7,7 @@ from yearvideo.pipeline import (
     load_config,
     refresh_timeline,
     replan,
+    set_manual_timing,
     split_item,
 )
 from yearvideo.render import render_month
@@ -67,3 +68,64 @@ def test_split_a_photo_and_a_card(tmp_path, cfg):
     halves = [i for i in tl["items"] if item_src(i) == pid]
     assert len(halves) == 2
     assert sum(h["duration"] for h in halves) == pytest.approx(dur, abs=0.01)
+
+
+def month_with_song(tmp_path, cfg):
+    generate_month(tmp_path, n_photos=10, n_dupes=0, n_videos=0, n_songs=1, with_video=False)
+    return build_timeline(tmp_path, cfg)
+
+
+def test_manual_timing_pins_lengths_so_nothing_moves_and_stretching_does_not_refit_others(tmp_path, cfg):
+    tl = month_with_song(tmp_path, cfg)
+    before = [(i["id"], round(i["duration"], 2)) for i in tl["items"] if i["keep"]]
+    total = tl["total"]
+    tl = set_manual_timing(tl, True)
+    assert [(i["id"], round(i["duration"], 2)) for i in tl["items"] if i["keep"]] == before  # nothing visibly moved
+    assert tl["total"] == pytest.approx(total, abs=0.05) and tl["manual_timing"] is True
+    first = next(i for i in tl["items"] if i["keep"])
+    first["duration_override"] = first["duration"] + 2.0  # stretch one picture
+    tl = replan(tl)
+    others = [(i["id"], round(i["duration"], 2)) for i in tl["items"] if i["keep"]][1:]
+    assert others == before[1:]  # the rest keep their lengths
+    assert tl["total"] == pytest.approx(total + 2.0, abs=0.05)  # the month simply gets longer
+    assert "music" in tl["note"]  # and says how it compares with the music
+
+
+def test_without_manual_timing_stretching_one_picture_refits_the_rest(tmp_path, cfg):
+    tl = month_with_song(tmp_path, cfg)
+    total = tl["total"]
+    first = next(i for i in tl["items"] if i["keep"])
+    first["duration_override"] = first["duration"] + 2.0
+    tl = replan(tl)
+    assert tl["total"] == pytest.approx(total, abs=0.3)  # automatic: month stays the length of the music
+
+
+def test_new_items_get_a_natural_length_and_release_goes_back_to_automatic(tmp_path, cfg):
+    tl = set_manual_timing(month_with_song(tmp_path, cfg), True)
+    victim = next(i for i in tl["items"] if i["keep"])
+    victim["duration_override"] = None  # e.g. a brand-new photo from a rescan
+    tl = replan(tl)
+    lim = tl["limits"]
+    assert next(i for i in tl["items"] if i["id"] == victim["id"])["duration"] == pytest.approx(
+        (lim["photo_min"] + lim["photo_max"]) / 2, abs=0.01
+    )
+    tl = set_manual_timing(tl, False, release=True)
+    assert tl["manual_timing"] is False
+    assert all(i["duration_override"] is None for i in tl["items"] if i["kind"] != "card")
+    assert tl["fits"] is True
+
+
+@pytest.mark.parametrize("delta", [+12.0, -12.0])
+def test_render_follows_the_pictures_not_the_music_in_manual_timing(tmp_path, cfg, delta):
+    from test_features import duration
+
+    tl = set_manual_timing(month_with_song(tmp_path, cfg), True)
+    music = tl["audio_clips"][0]["src_out"] - tl["audio_clips"][0]["src_in"]
+    items = [i for i in tl["items"] if i["keep"]]
+    share = delta / len(items)
+    for i in items:
+        i["duration_override"] = max(0.5, i["duration"] + share)
+    tl = replan(tl)
+    out = render_month(tl, tmp_path, tmp_path / "manual_timing.mp4", encoder="libx264")
+    assert duration(out) == pytest.approx(tl["total"], abs=0.4)  # longer than the song: silence; shorter: song is cut
+    assert abs(tl["total"] - music) > 5
