@@ -15,6 +15,7 @@ from pathlib import Path
 
 from PIL import Image, ImageOps
 
+from .combine import resolve_src
 from .ingest import find_tool
 from .overlays import make_caption_image, make_card_image
 from .pipeline import item_src, song_path
@@ -159,7 +160,7 @@ def audio_graph(
 
     mix = ["[mus]"]
     for j, it in enumerate(i for i in items if wants_clip_sound(tl, i)):
-        inputs += ["-ss", f"{it['src_in']:.3f}", "-t", f"{it['duration']:.3f}", "-i", str(month_dir / item_src(it))]
+        inputs += ["-ss", f"{it['src_in']:.3f}", "-t", f"{it['duration']:.3f}", "-i", str(resolve_src(month_dir, item_src(it)))]
         ms = round(it["start"] * 1000)
         vol = snd["video_volume"] * it.get("audio_volume", 1.0)
         chains.append(f"[{idx}:a]aformat=channel_layouts=stereo,volume={vol},adelay={ms}:all=1[c{j}]")
@@ -225,8 +226,8 @@ def render_month(
                 return "img", make_card_image(it.get("color", "#000000"), it.get("text", ""),
                                               it.get("text_color", "#ffffff"), (w, h), work / f"card_{n}.png")  # fmt: skip
             if it["kind"] == "photo":
-                return "img", _upright(month_dir / item_src(it), work)
-            return "vid", month_dir / item_src(it)
+                return "img", _upright(resolve_src(month_dir, item_src(it)), work)
+            return "vid", resolve_src(month_dir, item_src(it))
 
         def inputs_for(n: int, offset: float, dur: float) -> tuple[list[str], str]:
             """Input args + padding filter giving `dur` seconds of item n starting `offset` into it.

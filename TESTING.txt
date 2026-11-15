@@ -64,9 +64,17 @@ STEP 4 - What to try in the editor, in this order
     onto the Clips row to drop it exactly there, or double-click it to add it at the playhead, or tick
     several and press "Add". Pictures from another month are MOVED on disk into this month (cut and
     paste) and show "from <month>" with a "send back" button. Faded pictures are already in the timeline.
- 5. Timeline editing: drag clips on the Clips row to reorder, drag block edges to change length,
+ 5. Combine months (header, "Combine months..."): tick two or more months to edit as ONE month. The
+    pictures stay in their folders; the combined month appears in the month list and REPLACES its
+    sources in the year video. Coloured month labels and divider lines on the Clips row show which
+    month each picture is from, and the big month name sits at the top. "Split back" undoes it.
+ 5b. Build year video (header): plans/renders whatever changed, then joins everything into year.mp4
+    in the year folder (link appears next to the button). One render runs at a time. The month you
+    are on is remembered in the address (?m=...), and a second window with an older copy of a
+    month is refused (you are offered a reload) instead of overwriting newer edits.
+ 6. Timeline editing: drag clips on the Clips row to reorder, drag block edges to change length,
     press S to split at the playhead, Backspace to delete, Ctrl+Z to undo.
- 6. Month settings > Lengths > tick "Manual timing": lengths stay exactly as you set them, the month
+ 7. Month settings > Lengths > tick "Manual timing": lengths stay exactly as you set them, the month
     becomes as long as your pictures. "Release all lengths" goes back to automatic.
  7. Music panel: add the song, try beat sync, fades.
  8. Click "Render preview" (fast, small), then "Render final".

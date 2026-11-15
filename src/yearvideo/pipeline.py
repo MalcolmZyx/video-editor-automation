@@ -471,6 +471,8 @@ def load_timeline(path: Path) -> dict:
 
 def refresh_timeline(tl: dict, month_dir: Path) -> dict:
     """Pick up files added to / removed from the month folder, keeping all review decisions."""
+    if tl.get("combined_from"):  # a combined month points at other folders; nothing to scan here
+        return replan(tl)
     catalog = scan_month(month_dir)
     on_disk = {m.id for m in catalog}
     dd = dedupe_photos(month_dir, catalog)

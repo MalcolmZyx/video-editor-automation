@@ -22,6 +22,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from PIL import Image, ImageOps
 
 from . import themes
+from .combine import combine, combined_sources, is_combined, uncombine
 from .fonts import list_fonts, resolve_font
 from .ingest import PHOTO_EXT, VIDEO_EXT, find_tool
 from .pipeline import (
@@ -43,7 +44,7 @@ from .pipeline import (
     to_manual,
 )
 from .render import render_month
-from .year import month_folders
+from .year import build_year, month_folders
 
 UI = Path(__file__).with_name("ui.html")
 THUMB = (320, 180)
@@ -63,6 +64,13 @@ def is_month_dir(d: Path) -> bool:
     return any((d / n).is_dir() for n in ("photos", "videos", "music", "Photos", "Videos", "Music"))
 
 
+class StaleError(Exception):
+    """The browser window is working on an older version of this month than the one on disk."""
+
+
+RENDER_LOCK = threading.Lock()  # only one render at a time (the machine has one encoder); others wait
+
+
 class Review:
     """One month: its timeline file, thumbnails and render state."""
 
@@ -79,15 +87,36 @@ class Review:
         with self.lock:
             if not self.path.exists():
                 save_timeline(build_timeline(self.dir, load_config()), self.path)
-            return load_timeline(self.path)
+            tl = load_timeline(self.path)
+            tl.setdefault("rev", 0)  # the browser sends this back so a stale window can be spotted
+            return tl
 
     def save(self, tl: dict) -> dict:
         with self.lock:
+            on_disk = 0
+            if self.path.exists():
+                try:
+                    on_disk = load_timeline(self.path).get("rev", 0)
+                except (OSError, ValueError):
+                    on_disk = 0
+            if "rev" in tl and tl["rev"] != on_disk:
+                raise StaleError(
+                    "stale: this month was changed in another window or tab. Reload the page to see the latest."
+                )
             tl = replan(tl)
+            tl["rev"] = on_disk + 1
             save_timeline(tl, self.path)
             return tl
 
+    def _write(self, tl: dict) -> None:
+        tl["rev"] = tl.get("rev", 0) + 1
+        save_timeline(tl, self.path)
+
     def safe(self, rel: str) -> Path | None:
+        if rel.startswith("@"):  # a file of another month that a combined month points at
+            p = (self.dir.parent / rel[1:]).resolve()
+            ok = p.suffix.lower() in PHOTO_EXT | VIDEO_EXT and self.dir.parent.resolve() in p.parents
+            return p if ok and p.is_file() else None
         p = (self.dir / rel).resolve()
         return p if p.is_file() and self.dir in p.parents else None
 
@@ -137,8 +166,8 @@ class Review:
     def rescan(self) -> None:
         """Pick up files that were moved in/out of the folder, if this month has been planned."""
         with self.lock:
-            if self.path.exists():
-                save_timeline(refresh_timeline(load_timeline(self.path), self.dir), self.path)
+            if self.path.exists() and not is_combined(self.dir):
+                self._write(refresh_timeline(load_timeline(self.path), self.dir))
 
     def used_ids(self) -> list[str]:
         """Files this month currently plays (cheap read of the saved timeline, empty if not planned yet)."""
@@ -183,7 +212,7 @@ class Review:
             tl.setdefault("borrowed", []).extend(moved)
             if before_id is not None:
                 tl = replan(self.place(tl, [m["id"] for m in moved], before_id or None))
-            save_timeline(tl, self.path)
+            self._write(tl)
             return tl
 
     def send_back(self, other_of: dict, ids: list[str]) -> dict:
@@ -211,7 +240,7 @@ class Review:
             tl = load_timeline(self.path)
             tl["borrowed"] = keep
             tl = refresh_timeline(tl, self.dir)
-            save_timeline(tl, self.path)
+            self._write(tl)
             return tl
 
     def group_themes(self, group: bool, strictness: str = themes.DEFAULT_STRICTNESS) -> dict:
@@ -287,9 +316,10 @@ class Review:
     def render(self, preview: bool) -> None:
         def work():
             try:
-                tl = self.timeline()
-                name = "month_preview.mp4" if preview else "month.mp4"
-                render_month(tl, self.dir, self.dir / name, preview=preview)
+                with RENDER_LOCK:
+                    tl = self.timeline()
+                    name = "month_preview.mp4" if preview else "month.mp4"
+                    render_month(tl, self.dir, self.dir / name, preview=preview)
                 self.render_state = {"status": "done", "error": None, "preview": preview}
             except Exception as e:  # noqa: BLE001 - surfaced in the UI
                 self.render_state = {"status": "error", "error": str(e), "preview": preview}
@@ -314,12 +344,57 @@ class Review:
 class App:
     def __init__(self, root: Path):
         root = root.resolve()
-        if is_month_dir(root):
+        self.root = root
+        self.single = is_month_dir(root)
+        if self.single:
             self.months = {root.name: Review(root)}
         else:
             self.months = {d.name: Review(d) for d in month_folders(root)}
         if not self.months:
             raise ValueError(f"no month folders with photos/videos found in {root}")
+        self.year_state = {"status": "idle", "error": None, "done": 0, "total": 0, "current": "", "phase": ""}
+
+    def month_list(self) -> list[dict]:
+        replaced = {} if self.single else combined_sources(self.root)
+        return [
+            {"name": n, "has_timeline": r.path.exists(), "has_final": (r.dir / "month.mp4").exists(),
+             "combined": r.path.exists() and is_combined(r.dir), "hidden_by": replaced.get(n)}
+            for n, r in self.months.items()
+        ]  # fmt: skip
+
+    def combine(self, names: list[str]) -> str:
+        if self.single:
+            raise ValueError("open the whole year folder to combine months")
+        dest = combine(self.root, names)
+        self.months = {d.name: self.months.get(d.name) or Review(d) for d in month_folders(self.root)}
+        return dest.name
+
+    def uncombine(self, name: str) -> list[str]:
+        if self.single:
+            raise ValueError("open the whole year folder to combine months")
+        out = uncombine(self.root, name)
+        self.months = {d.name: self.months.get(d.name) or Review(d) for d in month_folders(self.root)}
+        return out
+
+    def build_year(self) -> None:
+        if self.single:
+            raise ValueError("open the whole year folder to build the year video")
+        if self.year_state["status"] == "running":
+            return
+
+        def progress(i, n, name, phase):
+            self.year_state.update(done=i, total=n, current=name, phase=phase)
+
+        def work():
+            try:
+                with RENDER_LOCK:
+                    build_year(self.root, progress=progress)
+                self.year_state.update(status="done", error=None, phase="")
+            except Exception as e:  # noqa: BLE001 - surfaced in the UI
+                self.year_state.update(status="error", error=str(e))
+
+        self.year_state = {"status": "running", "error": None, "done": 0, "total": 0, "current": "", "phase": "starting"}
+        threading.Thread(target=work, daemon=True).start()
 
     def get(self, name: str | None) -> Review | None:
         return self.months.get(name) if name else next(iter(self.months.values()))
@@ -390,11 +465,14 @@ def make_handler(app: App):
             try:
                 if u.path == "/":
                     self._send(200, UI.read_bytes(), "text/html; charset=utf-8")
+                elif u.path == "/year.mp4":
+                    f = app.root / "year.mp4"
+                    self._file(f) if f.is_file() else self._send(404, b"", "text/plain")
                 elif u.path == "/api/months":
-                    self._json([
-                        {"name": n, "has_timeline": r.path.exists(), "has_final": (r.dir / "month.mp4").exists()}
-                        for n, r in app.months.items()
-                    ])  # fmt: skip
+                    self._json(app.month_list())
+                elif u.path == "/api/year_status":
+                    self._json({**app.year_state, "single": app.single,
+                                "year_mtime": (app.root / "year.mp4").stat().st_mtime if (app.root / "year.mp4").exists() else None})  # fmt: skip
                 elif rv is None:
                     self._send(404, b"", "text/plain")
                 elif u.path == "/api/timeline":
@@ -461,7 +539,7 @@ def make_handler(app: App):
                 elif u.path == "/api/refresh":
                     with rv.lock:
                         tl = refresh_timeline(load_timeline(rv.path), rv.dir)
-                        save_timeline(tl, rv.path)
+                        rv._write(tl)
                     self._json(tl)
                 elif u.path == "/api/card":
                     tl = rv.timeline()
@@ -507,8 +585,20 @@ def make_handler(app: App):
                 elif u.path == "/api/render":
                     rv.render(bool(body.get("preview")))
                     self._json(rv.status())
+                elif u.path == "/api/combine":
+                    if body.get("action") == "split":
+                        back = app.uncombine(body["name"])
+                        self._json({"months": app.month_list(), "back": back})
+                    else:
+                        name = app.combine(body.get("months", []))
+                        self._json({"months": app.month_list(), "name": name})
+                elif u.path == "/api/year":
+                    app.build_year()
+                    self._json(app.year_state)
                 else:
                     self._send(404, b"", "text/plain")
+            except StaleError as e:
+                self._json({"error": str(e), "stale": True}, 409)
             except Exception as e:  # noqa: BLE001 - report to the browser instead of dropping the connection
                 self._json({"error": str(e)}, 500)
 
