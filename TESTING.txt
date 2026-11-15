@@ -59,9 +59,11 @@ STEP 4 - What to try in the editor, in this order
  3. Group same moments (Storyboard header): puts photos of the SAME moment/event together, placed where
     the first one was taken; everything else stays in time order. Strictness dropdown next to it.
     "Ungroup (by time)" or Ctrl+Z undoes it. First use downloads ~150 MB once.
- 4. Take from other months (bottom of the page, year folder only): tick photos from
-    another month and press "Move N selected here". This MOVES the files on disk
-    (cut and paste). Each moved item shows "from <month>" with a "send back" button.
+ 4. Media panel (bottom of the page, year folder only): one tab per month, each with its own colour and
+    a badge on every picture saying which month it is from; "All months" shows everything. DRAG a picture
+    onto the Clips row to drop it exactly there, or double-click it to add it at the playhead, or tick
+    several and press "Add". Pictures from another month are MOVED on disk into this month (cut and
+    paste) and show "from <month>" with a "send back" button. Faded pictures are already in the timeline.
  5. Timeline editing: drag clips on the Clips row to reorder, drag block edges to change length,
     press S to split at the playhead, Backspace to delete, Ctrl+Z to undo.
  6. Month settings > Lengths > tick "Manual timing": lengths stay exactly as you set them, the month

@@ -61,3 +61,24 @@ def test_cannot_take_from_itself_or_outside_the_month(year):
         c.post("/api/borrow?m=01-Jan", {"from": "01-Jan", "ids": []})
     with pytest.raises(urllib.error.HTTPError):  # a path that climbs out of the month is refused
         c.post("/api/borrow?m=01-Jan", {"from": "02-Feb", "ids": ["../01-Jan/timeline.json"]})
+
+
+def test_media_lists_every_month_and_marks_used_files(year):
+    c, _ = year
+    media = c.json("/api/media?m=01-Jan")
+    assert [m["name"] for m in media] == ["01-Jan", "02-Feb"]
+    assert len(media[0]["used"]) == 4 and media[1]["used"] == []
+    assert len(media[0]["items"]) == 4 and len(media[1]["items"]) == 4
+
+
+def test_taken_files_land_exactly_where_dropped(year):
+    c, _ = year
+    tl = c.json("/api/timeline?m=01-Jan")
+    order = [i["id"] for i in tl["items"] if i["kind"] == "photo"]
+    feb = [m["id"] for m in c.json("/api/media?m=01-Jan")[1]["items"]][:2]
+    out = c.post("/api/borrow?m=01-Jan", {"from": "02-Feb", "ids": feb, "before_id": order[2]})
+    ids = [i["id"] for i in out["items"] if i["kind"] == "photo"]
+    assert ids[:2] == order[:2] and ids[4:] == order[2:]
+    assert all(i["keep"] for i in out["items"] if i["id"] not in order)
+    end = c.post("/api/borrow?m=01-Jan", {"from": "02-Feb", "ids": [m["id"] for m in c.json("/api/media?m=01-Jan")[1]["items"]][:1], "before_id": ""})
+    assert [i["id"] for i in end["items"] if i["kind"] == "photo"][-1] in {b["id"] for b in end["borrowed"]}

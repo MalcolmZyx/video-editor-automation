@@ -140,7 +140,27 @@ class Review:
             if self.path.exists():
                 save_timeline(refresh_timeline(load_timeline(self.path), self.dir), self.path)
 
-    def take_from(self, other: Review, ids: list[str]) -> dict:
+    def used_ids(self) -> list[str]:
+        """Files this month currently plays (cheap read of the saved timeline, empty if not planned yet)."""
+        if not self.path.exists():
+            return []
+        try:
+            return [item_src(i) for i in load_timeline(self.path)["items"] if i["keep"] and i["kind"] != "card"]
+        except Exception:  # noqa: BLE001 - a damaged file just means "nothing marked as used"
+            return []
+
+    @staticmethod
+    def place(tl: dict, ids: list[str], before_id: str | None) -> dict:
+        """Put the items `ids` (kept) right before the item `before_id`, or at the end when there is none."""
+        moving = [i for i in tl["items"] if i["id"] in ids]
+        for it in moving:
+            it["keep"] = True
+        rest = [i for i in tl["items"] if i["id"] not in ids]
+        at = next((n for n, i in enumerate(rest) if i["id"] == before_id), len(rest))
+        tl["items"] = rest[:at] + moving + rest[at:]
+        return tl
+
+    def take_from(self, other: Review, ids: list[str], before_id: str | None = None) -> dict:
         """Move (cut + paste) files from another month's folder into this one; both months re-scan."""
         moved = []
         for rel in ids:
@@ -161,6 +181,8 @@ class Review:
         with self.lock:
             tl = refresh_timeline(load_timeline(self.path), self.dir)
             tl.setdefault("borrowed", []).extend(moved)
+            if before_id is not None:
+                tl = replan(self.place(tl, [m["id"] for m in moved], before_id or None))
             save_timeline(tl, self.path)
             return tl
 
@@ -387,6 +409,10 @@ def make_handler(app: App):
                     self._json([
                         {"name": n, "items": r.media_list()} for n, r in app.months.items() if r is not rv
                     ])  # fmt: skip
+                elif u.path == "/api/media":  # every photo/clip of every month, with which are already used
+                    self._json([
+                        {"name": n, "items": r.media_list(), "used": r.used_ids()} for n, r in app.months.items()
+                    ])  # fmt: skip
                 elif u.path == "/api/songs":
                     self._json(list_songs(rv.dir, rv.timeline()))
                 elif u.path == "/song":
@@ -468,7 +494,7 @@ def make_handler(app: App):
                         other = app.months.get(body.get("from"))
                         if other is None or other is rv:
                             return self._json({"error": "choose a different month to take from"}, 400)
-                        self._json(rv.take_from(other, body.get("ids", [])))
+                        self._json(rv.take_from(other, body.get("ids", []), body.get("before_id")))
                 elif u.path == "/api/timing":
                     tl = body["timeline"] if "timeline" in body else rv.timeline()
                     act = body.get("action")

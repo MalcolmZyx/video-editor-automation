@@ -89,6 +89,11 @@
          color:#fff; border:1px solid #fff4; white-space:nowrap; text-overflow:ellipsis; }
   .blk.sel { outline:2px solid #fff; z-index:3; }
   .blk[data-ci] { cursor:grab; touch-action:none; }
+  .mtabs { display:flex; flex-wrap:wrap; gap:4px; }
+  .mtabs button { padding:4px 10px; }
+  .mtabs button.on { background:#5aa9ff33; font-weight:600; }
+  .mhead { font-weight:600; padding:4px 8px; margin-top:8px; }
+  .mcard.used { opacity:.55; }
   .ins { position:absolute; top:0; bottom:0; width:3px; margin-left:-1px; background:#fff; box-shadow:0 0 0 1px #000a; z-index:7; pointer-events:none; }
   .blk.cap { background:var(--cap); color:#1b1230; cursor:grab; }
   .blk .h { position:absolute; top:0; width:7px; height:100%; cursor:ew-resize; background:#0004; }
@@ -157,7 +162,7 @@
   <div id="kept" class="grid"></div>
   <h2 id="dh">Dropped</h2>
   <div id="dropped" class="grid"></div>
-  <h2>Take from other months <button class="i" data-k="borrow">i</button></h2>
+  <h2>Media — every photo and clip of every month <button class="i" data-k="borrow">i</button></h2>
   <div id="borrow" class="mut">Open the whole year folder (not a single month) to take photos from other months.</div>
   <div style="height:20px"></div>
 </main>
@@ -206,7 +211,7 @@ const INFO = {
   settings: "These settings belong to this month only. New months start from config/default.yaml. Your changes are saved automatically and are never overwritten when you rescan.",
   storyboard: "Every kept photo/clip in playing order. Untick 'keep' to leave something out (it moves to Dropped, where you can bring it back). Use ▲▼ to reorder.",
   themes: "Finds photos/clips that show the SAME MOMENT (for example shots of one event taken by different people at different times) and puts them together. Time stays in charge: a group sits where its earliest photo was taken, and anything that is not very alike another picture stays exactly where it was. 'strict' is the default; 'very strict' only joins near-identical shots, 'loose' joins more. Only kept items are used (dropped duplicates are ignored). 'Ungroup' restores time order; Ctrl+Z also undoes. Runs on this computer; the first time it downloads a ~150 MB model.",
-  borrow: "Move (cut and paste) photos or clips from another month's folder into this month. The FILE is moved on disk, so it disappears from the other month and its plan updates by itself. Items you took are marked 'from <month>' and have a 'send back' button that puts the file back where it came from. Nothing is overwritten: a name clash gets a suffix.",
+  borrow: "Every photo and clip of every month, one tab per month (each month has its own colour; the badge on a picture says which month it is from). Drag a picture onto the Clips row to put it exactly where you drop it, or double-click it to add it at the playhead, or tick several and press the Add button. Pictures from THIS month that you dropped come back; pictures from another month are MOVED on disk into this month (the other month's plan updates by itself) and get a 'send back' button. Faded pictures are already in the timeline.",
   card: "A blank card in any colour (optionally with centred text) that you can put anywhere in the order — for example between two parts of the month.",
   caption: "Adds a text caption that starts at the moment the preview is currently showing (where the red line is in the timeline). Then: drag the text in the preview to move it, use the round handle above it to rotate and the square corner to resize. Drag the purple block in the timeline to change when it shows, or drag its edges to lengthen/shorten it. All other options are in the panel on the right.",
   layer: "Plays another song AT THE SAME TIME as the main music, starting at the current time. It gets its own row in the timeline: drag it to move it, drag its edges to trim it, and set its volume and fades in the panel on the right. Use it for a second song, an ambient sound, etc.",
@@ -433,6 +438,27 @@ async function init() {
     for (let k = 0; k < 3; k++) await undo();
     log.push('undone:' + ids().join(','));
     document.title = 'DRAG ' + log.join(' | ');
+  }
+  if (location.hash === '#media') {
+    const log = []; window.onerror = (m) => log.push('JSERR ' + m);
+    const wait = (ms) => new Promise(r => setTimeout(r, ms));
+    await wait(1500);
+    const tabs = [...document.querySelectorAll('[data-mt]')].map(b => b.dataset.mt); log.push('tabs:' + tabs.length);
+    document.querySelector('[data-mt="*"]').click(); await wait(300);
+    const heads = document.querySelectorAll('.mhead').length, cards = document.querySelectorAll('.mcard').length;
+    log.push('heads:' + heads, 'cards:' + cards, 'used:' + document.querySelectorAll('.mcard.used').length);
+    const other = tabs.find(t => t !== '*' && t !== cur); document.querySelector(`[data-mt="${other}"]`).click(); await wait(300);
+    const before = kept().length, ids0 = kept().map(x => x.id);
+    const card = document.querySelector('.mcard'); const dt = new DataTransfer();
+    card.dispatchEvent(new DragEvent('dragstart', { bubbles:true, dataTransfer: dt }));
+    const lane = $('laneC'), r = lane.getBoundingClientRect(), x = $('tl').getBoundingClientRect().left + kept()[2].start * pps() + 2;
+    lane.dispatchEvent(new DragEvent('dragover', { bubbles:true, cancelable:true, clientX:x, clientY:r.top + 5, dataTransfer: dt }));
+    log.push('marker:' + !!lane.querySelector('.ins'));
+    lane.dispatchEvent(new DragEvent('drop', { bubbles:true, cancelable:true, clientX:x, clientY:r.top + 5, dataTransfer: dt }));
+    await wait(2500);
+    const after = kept(); log.push('count:' + before + '->' + after.length, 'landedAt:' + after.findIndex(a => !ids0.includes(a.id)), 'dropOn:' + (kept().length ? 'ok' : ''));
+    log.push('borrowed:' + (tl.borrowed || []).length);
+    document.title = 'MEDIA ' + log.join(' | ');
   }
   if (location.hash === '#mt') {
     const log = []; window.onerror = (m) => log.push('JSERR ' + m);
@@ -688,7 +714,7 @@ function card(it, idx) {
     el.onclick = async () => {
       if (el.tagName !== 'BUTTON') return;
       if (f === 'trim') return openTrim(it);
-      if (f === 'back') { await act('/api/borrow', { action:'return', ids:[it.id] }); borrowData = null; return drawAll(); }
+      if (f === 'back') { await act('/api/borrow', { action:'return', ids:[it.id] }); mediaData = null; return drawAll(); }
       if (f === 'addcard') { await act('/api/card', { after_id: it.id }); return drawAll(); }
       if (f === 'del') { tl.items = tl.items.filter(x => x.id !== it.id); return saveSoon(); }
       const k = keptIdx(), pos = k.indexOf(idx), j = k[pos + (f === 'up' ? -1 : 1)];
@@ -714,34 +740,78 @@ function card(it, idx) {
   return d;
 }
 const borrowedFrom = (it) => (tl.borrowed || []).find(b => b.id === it.id);
-let borrowMonth = '', borrowPick = new Set(), borrowData = null;
+const monthHue = (name) => { const names = (mediaData || []).map(m => m.name); return ((names.indexOf(name) + 1) * 47) % 360; };
+const monthColor = (name) => `hsl(${monthHue(name)} 65% 50%)`;
+let mediaTab = '', mediaData = null, mediaPick = new Set();
+// Where a dropped/added item goes: right before the first clip that starts after t (end of the timeline if none)
+function beforeIdAt(t) { const k = kept().find(x => x.start + x.duration / 2 > t); return k ? k.id : ''; }
+async function addMedia(month, ids, t) {
+  const before = beforeIdAt(t);
+  if (month === cur) {                       // this month's own files: bring dropped ones back, or move them
+    for (const id of ids) {
+      const it = tl.items.find(x => x.id === id); if (!it) continue;
+      tl.items = tl.items.filter(x => x !== it); it.keep = true;
+      const at = tl.items.findIndex(x => x.id === before); tl.items.splice(at < 0 ? tl.items.length : at, 0, it);
+    }
+    saveSoon(); mediaData = null; return;
+  }
+  await save();
+  await act('/api/borrow', { from: month, ids, before_id: before });
+  mediaData = null; drawAll();
+}
 async function drawBorrow() {
   const box = $('borrow');
-  if (!borrowData) { try { borrowData = await api('/api/borrow'); } catch (e) { return; } }
-  const others = borrowData;
-  if (!others.length) return;
-  if (!others.some(o => o.name === borrowMonth)) borrowMonth = others[0].name;
-  const month = others.find(o => o.name === borrowMonth);
+  if (!mediaData) { try { mediaData = await api('/api/media'); } catch (e) { return; } }
+  const all = mediaData;
+  if (!all.length) return;
+  if (mediaTab !== '*' && !all.some(o => o.name === mediaTab)) mediaTab = cur;
+  const used = new Set(kept().filter(i => i.kind !== 'card').map(isrc));
+  const shown = mediaTab === '*' ? all : all.filter(o => o.name === mediaTab);
   box.className = '';
-  box.innerHTML = `<div class="row" style="justify-content:flex-start;gap:8px;margin-bottom:8px">
-      <span class="lbl">Look in</span><select id="bmSel">${others.map(o => `<option ${o.name === borrowMonth ? 'selected' : ''}>${esc(o.name)}</option>`).join('')}</select>
-      <button id="bmGo" class="primary" ${borrowPick.size ? '' : 'disabled'}>Move ${borrowPick.size || ''} selected here</button>
-      <span class="mut">${month.items.length} items — tick the ones to move into ${esc(cur)}</span></div>
+  box.innerHTML = `<div class="mtabs"><button data-mt="*" class="${mediaTab === '*' ? 'on' : ''}">All months</button>${all.map(o =>
+      `<button data-mt="${esc(o.name)}" class="${mediaTab === o.name ? 'on' : ''}" style="border-bottom:3px solid ${monthColor(o.name)}">${esc(o.name)}${o.name === cur ? ' ★' : ''}</button>`).join('')}</div>
+    <div class="row" style="justify-content:flex-start;gap:8px;margin:8px 0"><span class="mut">Drag onto the Clips row below, double-click to add at the playhead, or tick several and press
+      </span><button id="bmGo" class="primary" ${mediaPick.size ? '' : 'disabled'}>Add ${mediaPick.size || ''} at playhead</button></div>
     <div class="grid" id="bmGrid"></div>`;
-  $('bmSel').onchange = (e) => { borrowMonth = e.target.value; borrowPick.clear(); drawBorrow(); };
+  box.querySelectorAll('[data-mt]').forEach(b => b.onclick = () => { mediaTab = b.dataset.mt; mediaPick.clear(); drawBorrow(); });
   const grid = $('bmGrid');
-  month.items.forEach(m => {
-    const d = document.createElement('label'); d.className = 'card'; d.style.cursor = 'pointer';
-    d.innerHTML = `<img class="thumb" loading="lazy" src="/thumb/${encodeURIComponent(month.name)}/${enc(m.id)}">
-      <div class="b"><div class="row"><span class="name" title="${esc(m.id)}">${esc(m.id.split('/').pop())}</span>
-      <input type="checkbox" ${borrowPick.has(m.id) ? 'checked' : ''}></div></div>`;
-    d.querySelector('input').onchange = (e) => { e.target.checked ? borrowPick.add(m.id) : borrowPick.delete(m.id); $('bmGo').disabled = !borrowPick.size; $('bmGo').textContent = `Move ${borrowPick.size || ''} selected here`; };
-    grid.appendChild(d);
-  });
+  for (const mo of shown) {
+    const usedHere = new Set(mo.name === cur ? used : mo.used);
+    if (mediaTab === '*') {
+      const h = document.createElement('div'); h.className = 'mhead'; h.style.gridColumn = '1/-1'; h.style.borderLeft = `6px solid ${monthColor(mo.name)}`;
+      h.textContent = `${mo.name} — ${mo.items.length} items`; grid.appendChild(h);
+    }
+    mo.items.forEach(m => {
+      const key = mo.name + '|' + m.id, isUsed = usedHere.has(m.id);
+      const d = document.createElement('div'); d.className = 'card mcard' + (isUsed ? ' used' : ''); d.draggable = true; d.style.cursor = 'grab';
+      d.style.borderTop = `4px solid ${monthColor(mo.name)}`;
+      d.innerHTML = `<img class="thumb" loading="lazy" draggable="false" src="/thumb/${encodeURIComponent(mo.name)}/${enc(m.id)}">
+        <div class="b"><div class="row"><span class="name" title="${esc(m.id)}">${esc(m.id.split('/').pop())}</span>
+        <input type="checkbox" ${mediaPick.has(key) ? 'checked' : ''}></div>
+        <span class="badge" style="background:${monthColor(mo.name)}33">${esc(mo.name.replace(/^\d+-/, ''))}${isUsed ? ' · in timeline' : ''}</span></div>`;
+      d.querySelector('input').onchange = (e) => { e.target.checked ? mediaPick.add(key) : mediaPick.delete(key); $('bmGo').disabled = !mediaPick.size; $('bmGo').textContent = `Add ${mediaPick.size || ''} at playhead`; };
+      d.ondragstart = (e) => { e.dataTransfer.setData('text/plain', JSON.stringify({ month: mo.name, ids: [m.id] })); e.dataTransfer.effectAllowed = 'copyMove'; };
+      d.ondblclick = () => addMedia(mo.name, [m.id], curTime());
+      grid.appendChild(d);
+    });
+  }
   $('bmGo').onclick = async () => {
-    const ids = [...borrowPick]; borrowPick.clear(); $('bmGo').disabled = true;
-    await act('/api/borrow', { from: borrowMonth, ids }); borrowData = null; drawAll();
+    const by = {}; for (const k of mediaPick) { const [mo, ...r] = k.split('|'); (by[mo] = by[mo] || []).push(r.join('|')); }
+    mediaPick.clear(); $('bmGo').disabled = true;
+    let t = curTime();
+    for (const [mo, ids] of Object.entries(by)) await addMedia(mo, ids, t);
+    if (cur in by) drawBorrow();
   };
+}
+// the Clips row accepts media dropped from the panel
+function wireClipDrop() {
+  const lane = $('laneC'); if (!lane) return;
+  const tAt = (e) => Math.max(0, (e.clientX - $('tl').getBoundingClientRect().left) / pps());
+  lane.ondragover = (e) => { e.preventDefault(); lane.classList.add('drop'); const k = kept(), b = beforeIdAt(tAt(e)), n = k.find(x => x.id === b);
+    let m = lane.querySelector('.ins'); if (!m) { m = document.createElement('div'); m.className = 'ins'; lane.appendChild(m); }
+    m.style.left = (n ? n.start : (k.length ? k[k.length - 1].start + k[k.length - 1].duration : 0)) * pps() + 'px'; };
+  lane.ondragleave = () => { lane.classList.remove('drop'); const m = lane.querySelector('.ins'); if (m) m.remove(); };
+  lane.ondrop = (e) => { e.preventDefault(); lane.ondragleave(); let d; try { d = JSON.parse(e.dataTransfer.getData('text/plain')); } catch (_) { return; } if (d && d.ids) addMedia(d.month, d.ids, tAt(e)); };
 }
 function themeLegend() {
   const n = {};
@@ -752,8 +822,8 @@ function themeLegend() {
 }
 function drawStoryboard() {
   themeLegend();
-  if (drawStoryboard.month !== cur) { drawStoryboard.month = cur; borrowData = null; borrowPick.clear(); }
-  if (!borrowData) drawBorrow();
+  if (drawStoryboard.month !== cur) { drawStoryboard.month = cur; mediaData = null; mediaPick.clear(); mediaTab = cur; }
+  if (!mediaData) drawBorrow();
   $('kept').replaceChildren(...tl.items.map((it, n) => it.keep ? card(it, n) : null).filter(Boolean));
   const dropped = tl.items.map((it, n) => it.keep ? null : card(it, n)).filter(Boolean);
   $('dh').textContent = `Dropped (${dropped.length}) — tick “keep” to restore`;
@@ -1097,6 +1167,7 @@ function drawTimeline() {
   $('ruler').onclick = seek; $('laneC').onclick = (e) => { if (e.target.id === 'laneC') seek(e); };
   $('laneT').onclick = (e) => { if (e.target.id === 'laneT') seek(e); };
   $('laneT').ondblclick = (e) => { if (e.target.id === 'laneT') { const r = host.getBoundingClientRect(); addCaption((e.clientX - r.left) / pps()); } };
+  wireClipDrop();
   movePlayhead();
 }
 function movePlayhead() {
