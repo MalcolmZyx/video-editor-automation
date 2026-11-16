@@ -24,8 +24,9 @@ from PIL import Image, ImageOps
 from . import themes
 from .combine import combine, combined_sources, is_combined, uncombine
 from .fonts import list_fonts, resolve_font
-from .ingest import PHOTO_EXT, VIDEO_EXT, find_tool
+from .ingest import PHOTO_EXT, VIDEO_EXT, find_tool, is_own_output
 from .pipeline import (
+    AUDIO_EXT,
     add_layer,
     add_song,
     build_timeline,
@@ -59,7 +60,7 @@ def is_month_dir(d: Path) -> bool:
     """
     if (d / "timeline.json").exists():
         return True
-    if any(f.suffix.lower() in PHOTO_EXT | VIDEO_EXT for f in d.iterdir() if f.is_file()):
+    if any(f.suffix.lower() in PHOTO_EXT | VIDEO_EXT and not is_own_output((f.name,)) for f in d.iterdir() if f.is_file()):
         return True
     return any((d / n).is_dir() for n in ("photos", "videos", "music", "Photos", "Videos", "Music"))
 
@@ -87,7 +88,16 @@ class Review:
         with self.lock:
             if not self.path.exists():
                 save_timeline(build_timeline(self.dir, load_config()), self.path)
-            tl = load_timeline(self.path)
+            try:
+                tl = load_timeline(self.path)
+            except (OSError, ValueError) as e:  # damaged file: fall back to the last backup, keep the bad one
+                bak = self.path.with_suffix(".json.bak")
+                if not bak.exists():
+                    raise RuntimeError(f"{self.path.name} is damaged and there is no backup: {e}") from e
+                self.path.replace(self.path.with_suffix(".json.corrupt"))
+                shutil.copyfile(bak, self.path)
+                tl = load_timeline(self.path)
+                tl["restored_from_backup"] = True
             tl.setdefault("rev", 0)  # the browser sends this back so a stale window can be spotted
             return tl
 
@@ -120,10 +130,64 @@ class Review:
         p = (self.dir / rel).resolve()
         return p if p.is_file() and self.dir in p.parents else None
 
+    unassigned_root: Path | None = None  # the year's UNASSIGNED-MUSIC folder, set by App
+
+    def unassigned_songs(self) -> list[dict]:
+        """Songs waiting in the year's UNASSIGNED-MUSIC folder (not tied to any month yet)."""
+        root = self.unassigned_root
+        if not root or not root.is_dir():
+            return []
+        return [
+            {"file": p.resolve().as_posix(), "name": p.name}
+            for p in sorted(root.rglob("*"))
+            if p.is_file() and p.suffix.lower() in AUDIO_EXT and not p.name.startswith(".")
+        ]
+
+    def claim_song(self, ref: str) -> dict:
+        """Move a song from UNASSIGNED-MUSIC into this month's music folder and add it to the month."""
+        if is_combined(self.dir):
+            raise ValueError("a combined month has no music folder; add the song to one of its source months first")
+        src = next((Path(u["file"]) for u in self.unassigned_songs() if u["file"] == ref), None)
+        if src is None or not src.is_file():
+            raise ValueError("that song is not in the UNASSIGNED-MUSIC folder")
+        dest = self.dir / "music" / src.name
+        n = 1
+        while dest.exists():
+            dest = dest.with_name(f"{src.stem}_{n}{src.suffix}")
+            n += 1
+        dest.parent.mkdir(exist_ok=True)
+        shutil.move(str(src), str(dest))
+        self.timeline()
+        with self.lock:
+            tl = refresh_timeline(load_timeline(self.path), self.dir)  # analyses the new song, adds it to the playlist
+            self._write(tl)
+            return tl
+
+    def release_song(self, ref: str) -> dict:
+        """Take a song out of this month and put its file back into UNASSIGNED-MUSIC."""
+        root = self.unassigned_root
+        if not root:
+            raise ValueError("there is no UNASSIGNED-MUSIC folder in the year folder")
+        src = self.dir / ref
+        if ref.startswith("music/") is False or not src.is_file() or self.dir not in src.resolve().parents:
+            raise ValueError("only songs in this month's music folder can be sent back")
+        dest = root / src.name
+        n = 1
+        while dest.exists():
+            dest = root / f"{src.stem}_{n}{src.suffix}"
+            n += 1
+        with self.lock:
+            tl = remove_song(load_timeline(self.path), ref)
+            tl["tracks"] = [t for t in tl["tracks"] if t["file"] != ref]
+            self._write(replan(tl))  # the month no longer mentions the song before its file leaves
+        shutil.move(str(src), str(dest))
+        return self.timeline()
+
     def song(self, ref: str) -> Path | None:
         """A song file, but only one this month actually lists (month folder or library)."""
         tl = self.timeline()
         allowed = {s["file"] for s in list_songs(self.dir, tl)} | {t["file"] for t in tl["tracks"]}
+        allowed |= {u["file"] for u in self.unassigned_songs()}
         if ref not in allowed:
             return None
         p = song_path(self.dir, ref)
@@ -146,6 +210,8 @@ class Review:
             )  # fmt: skip
         else:
             with Image.open(src) as im:
+                if im.format == "JPEG":
+                    im.draft("RGB", (THUMB[0] * 2, THUMB[1] * 2))  # decode at reduced size: far faster
                 im = ImageOps.exif_transpose(im).convert("RGB")
                 im.thumbnail(THUMB)
                 im.save(out, quality=80)
@@ -156,7 +222,7 @@ class Review:
         out = []
         for p in sorted(self.dir.rglob("*")):
             rel = p.relative_to(self.dir)
-            if any(part.startswith(".") or part == "music" for part in rel.parts) or not p.is_file():
+            if any(part.startswith(".") or part == "music" for part in rel.parts) or not p.is_file() or is_own_output(rel.parts):
                 continue
             ext = p.suffix.lower()
             if ext in PHOTO_EXT or ext in VIDEO_EXT:
@@ -191,7 +257,7 @@ class Review:
 
     def take_from(self, other: Review, ids: list[str], before_id: str | None = None) -> dict:
         """Move (cut + paste) files from another month's folder into this one; both months re-scan."""
-        moved = []
+        moved, failure = [], None
         for rel in ids:
             src = other.safe(rel)
             if not src or src.suffix.lower() not in PHOTO_EXT | VIDEO_EXT:
@@ -202,8 +268,12 @@ class Review:
             while dest.exists():  # never overwrite: add a suffix instead
                 dest = self.dir / sub / f"{src.stem}_from-{other.name}{'' if n == 1 else f'-{n}'}{src.suffix}"
                 n += 1
-            dest.parent.mkdir(exist_ok=True)
-            shutil.move(str(src), str(dest))
+            try:
+                dest.parent.mkdir(exist_ok=True)
+                shutil.move(str(src), str(dest))
+            except OSError as e:  # keep what already moved consistent, report the rest
+                failure = f"moved {len(moved)} of {len(ids)}; stopped at {src.name}: {e}"
+                break
             moved.append({"id": dest.relative_to(self.dir).as_posix(), "from": other.name, "rel": rel})
         other.rescan()
         self.timeline()  # make sure this month has a timeline
@@ -213,7 +283,9 @@ class Review:
             if before_id is not None:
                 tl = replan(self.place(tl, [m["id"] for m in moved], before_id or None))
             self._write(tl)
-            return tl
+        if failure:
+            raise OSError(failure)
+        return tl
 
     def send_back(self, other_of: dict, ids: list[str]) -> dict:
         """Undo a borrow: move the files back to the month (and path) they came from."""
@@ -231,8 +303,12 @@ class Review:
             dest = home.dir / b["rel"]
             if dest.exists():
                 dest = dest.with_name(f"{dest.stem}_returned{dest.suffix}")
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(src), str(dest))
+            try:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(src), str(dest))
+            except OSError:
+                keep.append(b)  # could not move it (file in use?): it stays borrowed, nothing is lost
+                continue
             touched.append(home)
         for h in touched:
             h.rescan()
@@ -272,6 +348,8 @@ class Review:
         if not out.exists():
             out.parent.mkdir(exist_ok=True)
             with Image.open(src) as im:
+                if im.format == "JPEG":
+                    im.draft("RGB", (width * 2, width * 2))
                 im = ImageOps.exif_transpose(im).convert("RGB")
                 im.thumbnail((width, width))
                 im.save(out, quality=85)
@@ -353,6 +431,11 @@ class App:
         if not self.months:
             raise ValueError(f"no month folders with photos/videos found in {root}")
         self.year_state = {"status": "idle", "error": None, "done": 0, "total": 0, "current": "", "phase": ""}
+        self.unassigned = next(
+            (d for d in sorted(root.iterdir()) if d.is_dir() and d.name.upper().startswith("UNASSIGNED")), None
+        ) if not self.single else None
+        for r in self.months.values():
+            r.unassigned_root = self.unassigned
 
     def month_list(self) -> list[dict]:
         replaced = {} if self.single else combined_sources(self.root)
@@ -367,6 +450,8 @@ class App:
             raise ValueError("open the whole year folder to combine months")
         dest = combine(self.root, names)
         self.months = {d.name: self.months.get(d.name) or Review(d) for d in month_folders(self.root)}
+        for r in self.months.values():
+            r.unassigned_root = self.unassigned
         return dest.name
 
     def uncombine(self, name: str) -> list[str]:
@@ -493,6 +578,8 @@ def make_handler(app: App):
                     ])  # fmt: skip
                 elif u.path == "/api/songs":
                     self._json(list_songs(rv.dir, rv.timeline()))
+                elif u.path == "/api/unassigned":
+                    self._json({"folder": rv.unassigned_root.name if rv.unassigned_root else None, "songs": rv.unassigned_songs()})
                 elif u.path == "/song":
                     f = rv.song(q.get("file", [""])[0])
                     self._file(f) if f else self._send(404, b"", "text/plain")
@@ -530,7 +617,10 @@ def make_handler(app: App):
             u = urlparse(self.path)
             rv = app.get(parse_qs(u.query).get("m", [None])[0])
             n = int(self.headers.get("Content-Length", 0))
-            body = json.loads(self.rfile.read(n) or b"{}") if n else {}
+            try:
+                body = json.loads(self.rfile.read(n) or b"{}") if n else {}
+            except ValueError:
+                return self._json({"error": "bad request (not valid JSON)"}, 400)
             if rv is None:
                 return self._send(404, b"", "text/plain")
             try:
@@ -564,6 +654,10 @@ def make_handler(app: App):
                         tl = to_manual(tl)
                     elif act == "library":
                         tl["music"]["library"] = body.get("library") or None
+                    elif act == "claim":
+                        return self._json(rv.claim_song(body["file"]))
+                    elif act == "release":
+                        return self._json(rv.release_song(body["file"]))
                     self._json(rv.save(tl))
                 elif u.path == "/api/borrow":
                     if body.get("action") == "return":

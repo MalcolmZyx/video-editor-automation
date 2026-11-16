@@ -11,7 +11,7 @@ import shutil
 from copy import deepcopy
 from pathlib import Path
 
-from .ingest import PHOTO_EXT, VIDEO_EXT
+from .ingest import PHOTO_EXT, VIDEO_EXT, is_own_output
 from .pipeline import (
     build_timeline,
     item_src,
@@ -125,4 +125,8 @@ def uncombine(year_dir: Path, name: str) -> list[str]:
 
 
 def has_media_or_combined(d: Path) -> bool:
-    return is_combined(d) or any(f.suffix.lower() in PHOTO_EXT | VIDEO_EXT for f in d.rglob("*") if f.is_file())
+    return is_combined(d) or any(
+        f.suffix.lower() in PHOTO_EXT | VIDEO_EXT and not is_own_output(f.relative_to(d).parts)
+        for f in d.rglob("*")
+        if f.is_file() and not any(x.startswith(".") for x in f.relative_to(d).parts)
+    )

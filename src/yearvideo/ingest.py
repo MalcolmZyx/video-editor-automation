@@ -6,14 +6,25 @@ import json
 import os
 import shutil
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
-from PIL import ExifTags, Image, ImageOps
+from PIL import ExifTags, Image
+
+from .cache import FileCache
 
 PHOTO_EXT = {".jpg", ".jpeg", ".png", ".webp", ".heic"}
 VIDEO_EXT = {".mp4", ".mov", ".m4v", ".mkv", ".avi"}
+
+
+OWN_OUTPUTS = {"month.mp4", "month_preview.mp4", "month.part.mp4", "month_preview.part.mp4", "year.mp4", "year.part.mp4"}
+
+
+def is_own_output(rel_parts: tuple[str, ...]) -> bool:
+    """The editor's own renders sitting in a folder (never treat them as source clips)."""
+    return len(rel_parts) == 1 and rel_parts[0].lower() in OWN_OUTPUTS
 
 
 def find_tool(name: str) -> str:
@@ -42,10 +53,12 @@ class MediaItem:
 
 
 def _photo_info(path: Path) -> tuple[int, int, str | None]:
-    with Image.open(path) as im:
-        im = ImageOps.exif_transpose(im)  # phone photos store rotation in EXIF
+    with Image.open(path) as im:  # header only: the picture itself is never decoded here
         w, h = im.size
-        raw = im.getexif().get_ifd(ExifTags.IFD.Exif).get(ExifTags.Base.DateTimeOriginal)
+        ex = im.getexif()
+        if ex.get(0x0112) in (5, 6, 7, 8):  # phone photos store rotation in EXIF; those swap width/height
+            w, h = h, w
+        raw = ex.get_ifd(ExifTags.IFD.Exif).get(ExifTags.Base.DateTimeOriginal)
     taken = None
     if raw:
         try:
@@ -81,23 +94,46 @@ def _has_audio(path: Path) -> bool:
     return bool(out.stdout.strip())
 
 
-def scan_month(root: Path) -> list[MediaItem]:
-    items: list[MediaItem] = []
+def _read_one(p: Path, rel: str, ext: str, cache: FileCache) -> MediaItem:
+    """Everything we need to know about one file; looked up in the cache first, asked of the file if new."""
+    info = cache.get(rel, p, "info")
+    if info is None:
+        mtime = datetime.fromtimestamp(p.stat().st_mtime).isoformat()
+        if ext in PHOTO_EXT:
+            w, h, taken = _photo_info(p)
+            info = {"kind": "photo", "w": w, "h": h, "taken": taken or mtime, "dur": None, "audio": False}
+        else:
+            w, h, dur, created = _video_info(p)
+            info = {"kind": "video", "w": w, "h": h, "taken": created or mtime, "dur": dur, "audio": _has_audio(p)}
+        cache.put(rel, p, "info", info)
+    return MediaItem(rel, info["kind"], info["w"], info["h"], info["taken"], p.stat().st_size, info["dur"], info["audio"])
+
+
+def scan_month(root: Path, cache: FileCache | None = None, skipped: list[dict] | None = None) -> list[MediaItem]:
+    """Catalog of the folder. Unreadable files are left out and listed in `skipped` instead of aborting."""
+    cache = cache or FileCache(root)
+    todo: list[tuple[Path, str, str]] = []
     for p in sorted(root.rglob("*")):
         ext = p.suffix.lower()
         rel_parts = p.relative_to(root).parts
-        if p.parent.name == "music" or not p.is_file() or any(x.startswith(".") for x in rel_parts):
+        if p.parent.name == "music" or not p.is_file() or any(x.startswith(".") for x in rel_parts) or is_own_output(rel_parts):
             continue  # songs, and the editor's own hidden caches (.thumbs, .proxy)
-        mtime = datetime.fromtimestamp(p.stat().st_mtime).isoformat()
-        rel = p.relative_to(root).as_posix()
-        if ext in PHOTO_EXT:
-            w, h, taken = _photo_info(p)
-            items.append(MediaItem(rel, "photo", w, h, taken or mtime, p.stat().st_size))
-        elif ext in VIDEO_EXT:
-            w, h, dur, created = _video_info(p)
-            items.append(
-                MediaItem(rel, "video", w, h, created or mtime, p.stat().st_size, dur, _has_audio(p))
-            )
+        if ext in PHOTO_EXT or ext in VIDEO_EXT:
+            todo.append((p, p.relative_to(root).as_posix(), ext))
+
+    def one(args):
+        try:
+            return _read_one(*args, cache)
+        except Exception as e:  # noqa: BLE001 - a damaged file must not stop the whole scan
+            return {"id": args[1], "error": f"{type(e).__name__}: {e}"[:200]}
+
+    with ThreadPoolExecutor(max_workers=min(8, (os.cpu_count() or 2))) as pool:
+        results = list(pool.map(one, todo))
+    items = [r for r in results if isinstance(r, MediaItem)]
+    if skipped is not None:
+        skipped.extend(r for r in results if isinstance(r, dict))
+    cache.forget_missing({rel for _, rel, _ in todo})
+    cache.save()
     items.sort(key=lambda i: (i.taken, i.id))  # chronological story order
     return items
 

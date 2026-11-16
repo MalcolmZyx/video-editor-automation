@@ -296,8 +296,11 @@ def render_month(
         cap_inputs, cgraph, has_caps = caption_graph(tl, work, (w, h), fps, total, nxt)
         graph = ";".join(g for g in (agraph, cgraph) if g)
         out.parent.mkdir(parents=True, exist_ok=True)
+        part = out.with_name(out.stem + ".part" + out.suffix)
+        part.unlink(missing_ok=True)
         vmap, vcodec = ("[vout]", enc) if has_caps else ("0:v", ["-c:v", "copy"])
         _run([ff, "-y", "-v", "error", *inputs, *cap_inputs, "-filter_complex", graph, "-map", vmap,
               "-map", "[aout]", *vcodec, "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
-              "-t", f"{total:.3f}", str(out)])  # fmt: skip
+              "-t", f"{total:.3f}", str(part)])  # fmt: skip
+        part.replace(out)  # only a finished video ever takes the place of the previous one
     return out

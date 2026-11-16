@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import shutil
+import time
 import uuid
 from copy import deepcopy
 from dataclasses import asdict
@@ -18,6 +19,7 @@ from pathlib import Path
 
 import yaml
 
+from .cache import FileCache
 from .dedupe import dedupe_photos
 from .ingest import scan_month
 from .moments import pick_start, score_video
@@ -253,7 +255,19 @@ def split_item(tl: dict, at: float) -> dict:
     return replan(tl)
 
 
-def _new_item(m, month_dir: Path, reason: str | None) -> dict:
+def _scores(month_dir: Path, rel: str, cache: FileCache | None) -> list[float]:
+    p = month_dir / rel
+    if cache is not None:
+        hit = cache.get(rel, p, "scores")
+        if hit is not None:
+            return hit
+    s = score_video(p)
+    if cache is not None:
+        cache.put(rel, p, "scores", s)
+    return s
+
+
+def _new_item(m, month_dir: Path, reason: str | None, cache: FileCache | None = None) -> dict:
     d = _base_item(m.id, m.kind)
     d.update(
         taken=m.taken,
@@ -262,7 +276,7 @@ def _new_item(m, month_dir: Path, reason: str | None) -> dict:
         drop_reason=reason,
         has_audio=m.has_audio,
         src_in_auto=m.kind == "video",
-        scores=score_video(month_dir / m.id) if m.kind == "video" else None,
+        scores=_scores(month_dir, m.id, cache) if m.kind == "video" else None,
     )
     return d
 
@@ -300,8 +314,9 @@ def make_caption(tl: dict, text: str, start: float, end: float, **over) -> dict:
 
 
 def build_timeline(month_dir: Path, cfg: dict, mode: str | None = None, library: str | None = None) -> dict:
-    catalog = scan_month(month_dir)
-    dd = dedupe_photos(month_dir, catalog)
+    cache, skipped = FileCache(month_dir), []
+    catalog = scan_month(month_dir, cache, skipped)
+    dd = dedupe_photos(month_dir, catalog, cache)
     tl: dict = {
         "month": month_dir.name,
         "output": cfg["output"],
@@ -323,13 +338,14 @@ def build_timeline(month_dir: Path, cfg: dict, mode: str | None = None, library:
         "items": [],
         "captions": [],
         "similar_groups": dd.similar_groups,
+        "skipped": skipped,
     }
     if cfg.get("title", {}).get("enabled"):
         title = make_card(tl, text=month_title(month_dir.name), seconds=cfg["title"]["seconds"])
         title["id"] = "__title__"
         tl["items"].append(title)
     for m in catalog:
-        tl["items"].append(_new_item(m, month_dir, dd.dropped.get(m.id)))
+        tl["items"].append(_new_item(m, month_dir, dd.dropped.get(m.id), cache))
     for s in sorted(p for p in (month_dir / "music").glob("*") if p.suffix.lower() in AUDIO_EXT):
         ref = song_ref(month_dir, s)
         tl["tracks"].append(_analyse_one(month_dir, ref))
@@ -459,8 +475,20 @@ def set_manual_timing(tl: dict, on: bool, release: bool = False) -> dict:
 def save_timeline(tl: dict, path: Path) -> None:
     """Write the timeline, keeping the previous version next to it as timeline.json.bak."""
     if path.exists():
-        shutil.copyfile(path, path.with_suffix(path.suffix + ".bak"))
-    path.write_text(json.dumps(tl, indent=2), encoding="utf-8")
+        try:
+            shutil.copyfile(path, path.with_suffix(path.suffix + ".bak"))
+        except OSError:
+            pass  # a missing backup must never block saving your work
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(tl, indent=2), encoding="utf-8")  # write fully first, then swap in one step
+    for attempt in range(5):  # Windows can briefly lock the file (antivirus, preview panes)
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if attempt == 4:
+                raise
+            time.sleep(0.1 * (attempt + 1))
 
 
 def load_timeline(path: Path) -> dict:
@@ -473,15 +501,17 @@ def refresh_timeline(tl: dict, month_dir: Path) -> dict:
     """Pick up files added to / removed from the month folder, keeping all review decisions."""
     if tl.get("combined_from"):  # a combined month points at other folders; nothing to scan here
         return replan(tl)
-    catalog = scan_month(month_dir)
+    cache, skipped = FileCache(month_dir), []
+    catalog = scan_month(month_dir, cache, skipped)
+    tl["skipped"] = skipped
     on_disk = {m.id for m in catalog}
-    dd = dedupe_photos(month_dir, catalog)
+    dd = dedupe_photos(month_dir, catalog, cache)
     known = {i["id"] for i in tl["items"]} | {item_src(i) for i in tl["items"] if i["kind"] != "card"}
     tl["items"] = [i for i in tl["items"] if i["kind"] == "card" or item_src(i) in on_disk]
     for m in sorted(catalog, key=lambda m: (m.taken, m.id)):
         if m.id in known:
             continue
-        item = _new_item(m, month_dir, dd.dropped.get(m.id))
+        item = _new_item(m, month_dir, dd.dropped.get(m.id), cache)
         pos = next(
             (n for n, i in enumerate(tl["items"]) if i.get("taken") and i["taken"] > m.taken),
             len(tl["items"]),

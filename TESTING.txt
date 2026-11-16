@@ -76,6 +76,14 @@ STEP 4 - What to try in the editor, in this order
     whether it lands before or after). Layout: drag the thin bar above the editor to make it taller or
     shorter, drag the vertical edges of the preview / inspector to resize them; double-click a bar to
     reset. Sizes are remembered.
+ 5d. Sections (Month settings / Storyboard / Dropped / Media): click the arrow or title to collapse; the
+    section you are in keeps its buttons pinned at the top. A picture taken from another month goes
+    back to its month when you untick keep or delete it.
+ 5e. Music: "Choose another song" also lists the UNASSIGNED-MUSIC folder of the year; "Move into <month>"
+    moves the file into the month's music folder, "-> unassigned" moves it back.
+ 5f. Safety: if the server stops or a save fails, a red notice appears, edits stay in the page (and a
+    draft in the browser), saving retries by itself and offers to restore the draft after a restart.
+    Stress check (slow, by hand): python tools/stress_year.py 150 3
  6. Timeline editing: drag clips on the Clips row to reorder, drag block edges to change length,
     press S to split at the playhead, Backspace to delete, Ctrl+Z to undo.
  7. Month settings > Lengths > tick "Manual timing": lengths stay exactly as you set them, the month

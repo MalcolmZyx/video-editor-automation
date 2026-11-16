@@ -26,6 +26,15 @@
   header h1 { font-size:15px; margin:0; }
 
   main { flex:1; overflow:auto; padding:14px 16px 28px; }
+  .sec > h2 { position:sticky; top:-14px; z-index:15; background:var(--bg); margin:0; padding:12px 0 8px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .sec { margin-top:10px; }
+  .sec .tg { cursor:pointer; user-select:none; width:22px; height:22px; padding:0; text-align:center; line-height:20px; }
+  .sec .ttl { cursor:pointer; user-select:none; }
+  .sec.collapsed > .body { display:none; }
+  .sec.collapsed .tg { transform:rotate(-90deg); }
+  .sec .body { padding-top:10px; }
+  #saveBanner { position:fixed; left:14px; bottom:14px; z-index:95; background:#a33; color:#fff; padding:8px 12px; border-radius:8px; display:none; max-width:480px; gap:8px; align-items:center; flex-wrap:wrap; }
+  #saveBanner button { font-size:12px; }
   h2 { font-size:13px; letter-spacing:.04em; text-transform:uppercase; color:var(--mut); margin:22px 0 8px; display:flex; gap:10px; align-items:center; }
   .panels { display:grid; grid-template-columns:repeat(auto-fill, minmax(330px, 1fr)); gap:10px; align-items:start; }
   details.panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; }
@@ -175,19 +184,32 @@
 
 <main>
   <div id="banner"></div>
-  <h2>Month settings <button class="i" data-k="settings">i</button></h2>
-  <div class="panels" id="panels"></div>
+  <section class="sec" data-sec="settings">
+    <h2><button class="tg" title="Collapse / expand">▾</button><span class="ttl">Month settings</span> <button class="i" data-k="settings">i</button></h2>
+    <div class="body"><div class="panels" id="panels"></div></div>
+  </section>
 
-  <h2>Storyboard <span class="mut" style="text-transform:none;letter-spacing:0">— the order the photos and clips play in</span>
-    <button class="i" data-k="storyboard">i</button>
-    <button id="btnAddCard">+ Colour card at end</button><button class="i" data-k="card">i</button>
-    <button id="btnGroup">Group same moments</button> <select id="grpStrict" title="How alike pictures must be to count as the same moment"><option value="very strict">very strict</option><option value="strict" selected>strict</option><option value="loose">loose</option></select><button id="btnUngroup" title="Back to the order they were taken in">Ungroup (by time)</button><button class="i" data-k="themes">i</button></h2>
-  <div id="themeLegend" class="mut" style="margin:4px 0 8px"></div>
-  <div id="kept" class="grid"></div>
-  <h2 id="dh">Dropped</h2>
-  <div id="dropped" class="grid"></div>
-  <h2>Media — every photo and clip of every month <button class="i" data-k="borrow">i</button></h2>
-  <div id="borrow" class="mut">Open the whole year folder (not a single month) to take photos from other months.</div>
+  <section class="sec" data-sec="story">
+    <h2><button class="tg" title="Collapse / expand">▾</button><span class="ttl">Storyboard</span> <span class="mut" style="text-transform:none;letter-spacing:0">— the order the photos and clips play in</span>
+      <button class="i" data-k="storyboard">i</button>
+      <button id="btnAddCard">+ Colour card at end</button><button class="i" data-k="card">i</button>
+      <button id="btnGroup">Group same moments</button> <select id="grpStrict" title="How alike pictures must be to count as the same moment"><option value="very strict">very strict</option><option value="strict" selected>strict</option><option value="loose">loose</option></select><button id="btnUngroup" title="Back to the order they were taken in">Ungroup (by time)</button><button class="i" data-k="themes">i</button></h2>
+    <div class="body"><div id="themeLegend" class="mut" style="margin:0 0 8px"></div>
+    <div id="kept" class="grid"></div></div>
+  </section>
+
+  <section class="sec" data-sec="dropped">
+    <h2><button class="tg" title="Collapse / expand">▾</button><span class="ttl" id="dh">Dropped</span>
+      <button id="btnRestoreAll" title="Put every dropped picture back into the video">Restore all</button></h2>
+    <div class="body"><div id="dropped" class="grid"></div></div>
+  </section>
+
+  <section class="sec" data-sec="media">
+    <h2><button class="tg" title="Collapse / expand">▾</button><span class="ttl">Media — every photo and clip of every month</span> <button class="i" data-k="borrow">i</button>
+      <span id="mtabs" class="mtabs"></span>
+      <button id="bmGo" class="primary" disabled>Add at playhead</button></h2>
+    <div class="body"><div id="borrow" class="mut">Open the whole year folder (not a single month) to take photos from other months.</div></div>
+  </section>
   <div style="height:20px"></div>
 </main>
 
@@ -225,6 +247,7 @@
 <div id="modal"><div class="box" id="trimbox"></div></div>
 <div id="tip"></div>
 <div id="toast"></div>
+<div id="saveBanner"><span id="sbMsg"></span><button id="sbRetry">Retry now</button><button id="sbSave">Download a backup</button></div>
 <audio id="songAudio"></audio>
 
 <script>
@@ -239,7 +262,7 @@ const INFO = {
   themes: "Finds photos/clips that show the SAME MOMENT (for example shots of one event taken by different people at different times) and puts them together. Time stays in charge: a group sits where its earliest photo was taken, and anything that is not very alike another picture stays exactly where it was. 'strict' is the default; 'very strict' only joins near-identical shots, 'loose' joins more. Only kept items are used (dropped duplicates are ignored). 'Ungroup' restores time order; Ctrl+Z also undoes. Runs on this computer; the first time it downloads a ~150 MB model.",
   combine: "Edit two or more months as ONE month, for example to flow from one month into the next with the same song. Pick the months and press Combine. The pictures stay in their original folders; the combined month is a new entry in the month list and REPLACES its sources in the year video. After combining, the combined month is the one you edit (edits to the old months no longer count). 'Split back' removes the combined month and brings the originals back, without touching any files.",
   year: "Does the whole job in one go: plans months that have no timeline yet, renders every month whose timeline changed since its last render, then joins all months (a combined month counts once, in place of its sources) into year.mp4 in the year folder. You can keep editing while it runs. Only one render runs at a time; others wait their turn.",
-  borrow: "Every photo and clip of every month, one tab per month (each month has its own colour; the badge on a picture says which month it is from). Drag a picture onto the Clips row to put it exactly where you drop it, or double-click it to add it at the playhead, or tick several and press the Add button. Pictures from THIS month that you dropped come back; pictures from another month are MOVED on disk into this month (the other month's plan updates by itself) and get a 'send back' button. Faded pictures are already in the timeline.",
+  borrow: "Every photo and clip of every month, one tab per month (each month has its own colour; the badge on a picture says which month it is from). Drag a picture onto the Clips row to put it exactly where you drop it, or double-click it to add it at the playhead, or tick several and press the Add button. Pictures from THIS month that you dropped come back; pictures from another month are MOVED on disk into this month (the other month's plan updates by itself) and get a 'send back' button, and when you untick keep or delete one of them it goes straight back to its own month instead of into Dropped. Faded pictures are already in the timeline.",
   card: "A blank card in any colour (optionally with centred text) that you can put anywhere in the order — for example between two parts of the month.",
   caption: "Adds a text caption that starts at the moment the preview is currently showing (where the red line is in the timeline). Then: drag the text in the preview to move it, use the round handle above it to rotate and the square corner to resize. Drag the purple block in the timeline to change when it shows, or drag its edges to lengthen/shorten it. All other options are in the panel on the right.",
   layer: "Plays another song AT THE SAME TIME as the main music, starting at the current time. It gets its own row in the timeline: drag it to move it, drag its edges to trim it, and set its volume and fades in the panel on the right. Use it for a second song, an ambient sound, etc.",
@@ -317,7 +340,7 @@ const SETTINGS = [
 ];
 
 // ------------------------------------------------------------------ state + helpers
-let availOpen = false, tl = null, months = [], cur = null, songs = [], fonts = [], sel = null, stat = {}, tab = 'live', saving = null, dragging = false;
+let unassigned = { folder: null, songs: [] }, availOpen = false, tl = null, months = [], cur = null, songs = [], fonts = [], sel = null, stat = {}, tab = 'live', saving = null, dragging = false;
 let T = 0, playing = false, tStart = 0, t0 = 0;
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -331,24 +354,59 @@ const isrc = (it) => it.src || it.id;
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const uid = () => Math.random().toString(16).slice(2, 10);
 
-function toast(msg) { const t = $('toast'); t.textContent = msg; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 6000); }
+function toast(msg, ok) { const t = $('toast'); t.textContent = msg; t.style.background = ok ? 'var(--ok, #2a7)' : ''; t.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(() => t.style.display = 'none', 6000); }
+const lsGet = (k) => { try { return localStorage.getItem(k); } catch (_) { return null; } };
+const lsSet = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (_) { /* private mode / full */ } };
+function initSections() {
+  document.querySelectorAll('.sec').forEach(sec => {
+    const key = 'yv_sec_' + sec.dataset.sec;
+    if (lsGet(key) === '1') sec.classList.add('collapsed');
+    const flip = () => { sec.classList.toggle('collapsed'); lsSet(key, sec.classList.contains('collapsed') ? '1' : null); };
+    sec.querySelector('.tg').onclick = flip; sec.querySelector('.ttl').onclick = flip;
+  });
+}
+class ApiError extends Error { constructor(msg, extra) { super(msg); Object.assign(this, extra || {}); } }
 async function api(path, body) {
   const url = path + (path.includes('?') ? '&' : '?') + 'm=' + encodeURIComponent(cur);
-  const r = await fetch(url, body === undefined ? {} : { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
-  const j = await r.json();
-  if (j && j.stale) { if (confirm('This month was changed in another window or tab.\n\nReload this page to see the latest version? (Your unsaved changes here would be lost.)')) location.reload(); throw new Error(j.error); }
-  if (j && j.error) { toast(j.error); throw new Error(j.error); }
+  let r, j;
+  try {
+    r = await fetch(url, body === undefined ? {} : { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    j = await r.json();
+  } catch (e) {
+    toast('Cannot reach the editor (is it still running?). Your changes are kept in this page and will be saved as soon as it is back.');
+    throw new ApiError('offline', { offline: true });
+  }
+  if (j && j.stale) { if (confirm('This month was changed in another window or tab.\n\nReload this page to see the latest version? (Your unsaved changes here would be lost.)')) location.reload(); throw new ApiError(j.error, { stale: true }); }
+  if (j && j.error) { toast(j.error); throw new ApiError(j.error); }
   return j;
 }
 let undoStack = [], undoPending = false, lastSaved = '';
 function pushUndo() { if (undoPending) return; undoStack.push(lastSaved); if (undoStack.length > 60) undoStack.shift(); undoPending = true; }
-function saveSoon() { pushUndo(); clearTimeout(saving); $('status').textContent = 'saving…'; renderLive(); drawTimeline(); saving = setTimeout(save, 350); }
+let dirty = false, retryN = 0;
+const draftKey = () => 'yv_draft_' + cur;
+function writeDraft() { try { lsSet(draftKey(), JSON.stringify({ rev: tl.rev, ts: Date.now(), tl })); } catch (_) { /* too big: fine */ } }
+function saveSoon() { pushUndo(); dirty = true; writeDraft(); clearTimeout(saving); $('status').textContent = 'saving…'; renderLive(); drawTimeline(); saving = setTimeout(save, 350); }
+function banner(msg) { const b = $('saveBanner'); if (!msg) { b.style.display = 'none'; return; } $('sbMsg').textContent = msg; b.style.display = 'flex'; }
 async function save() {
   if (dragging) { saving = setTimeout(save, 200); return; }
-  const fresh = await api('/api/timeline', tl);
+  clearTimeout(saving);
+  let fresh;
+  try { fresh = await api('/api/timeline', tl); }
+  catch (e) {
+    if (e.stale) { banner('Not saved: this month changed in another window. Reload to get the latest.'); return; }
+    // never lose work: the draft stays in this browser, and we keep retrying with growing pauses
+    retryN++; banner(`Not saved yet (attempt ${retryN}). Your edits are safe in this page — retrying…`);
+    saving = setTimeout(save, Math.min(2000 * retryN, 15000)); return;
+  }
+  retryN = 0; banner('');
   if (dragging) return;
-  tl = fresh; undoPending = false; lastSaved = JSON.stringify(tl); drawAll();
+  tl = fresh; dirty = false; lsSet(draftKey(), null); undoPending = false; lastSaved = JSON.stringify(tl); drawAll();
 }
+window.addEventListener('beforeunload', (e) => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+document.addEventListener('DOMContentLoaded', () => {
+  $('sbRetry').onclick = () => save();
+  $('sbSave').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(tl, null, 2)], { type: 'application/json' })); a.download = `timeline-backup-${cur}.json`; a.click(); };
+});
 async function act(path, body) {   // server-side edits (music, cards): undoable like everything else
   pushUndo(); tl = await api(path, body); undoPending = false; lastSaved = JSON.stringify(tl); return tl;
 }
@@ -369,7 +427,7 @@ function deleteSelected() {
   if (sel.type === 'mc') return removeClip(sel.id);
   if (sel.type === 'cap') tl.captions = tl.captions.filter(x => x.id !== sel.id);
   else if (sel.type === 'join') { const it = tl.items.find(x => x.id === sel.id); if (it) { it.transition_type = 'cut'; it.transition_out = 0; } }
-  else if (sel.type === 'item') { const it = tl.items.find(x => x.id === sel.id); if (it) { if (it.kind === 'card') tl.items = tl.items.filter(x => x !== it); else it.keep = false; } }
+  else if (sel.type === 'item') { const it = tl.items.find(x => x.id === sel.id); if (it && borrowedFrom(it)) { sel = null; return returnBorrowed([it.id]); } if (it) { if (it.kind === 'card') tl.items = tl.items.filter(x => x !== it); else it.keep = false; } }
   sel = null; drawInspector(); saveSoon();
 }
 const kept = () => tl.items.filter(x => x.keep && x.duration);
@@ -427,7 +485,7 @@ function initResize() {
 
 // ------------------------------------------------------------------ loading
 async function init() {
-  initResize();
+  initResize(); initSections();
   await loadMonths();
   $('monthSel').onchange = () => loadMonth($('monthSel').value);
   $('btnCombine').onclick = openCombine;
@@ -443,6 +501,7 @@ async function init() {
   };
   $('btnGroup').onclick = grouper('group'); $('btnUngroup').onclick = grouper('ungroup');
   $('btnSplit').onclick = splitHere;
+  $('btnRestoreAll').onclick = () => { tl.items.forEach(x => { if (!x.keep && !borrowedFrom(x)) x.keep = true; }); saveSoon(); };
   $('btnAddCard').onclick = async () => { await act('/api/card', {}); drawAll(); };
   $('btnAddCap').onclick = () => addCaption(curTime());
   $('btnAddLayer').onclick = addLayer;
@@ -546,6 +605,54 @@ async function init() {
     log.push('reset:' + Math.round($('dock').getBoundingClientRect().height));
     document.title = 'REORDER ' + log.join(' | ');
   }
+  if (location.hash === '#robust') {
+    const log = []; window.onerror = (m) => log.push('JSERR ' + m);
+    const wait = (ms) => new Promise(r => setTimeout(r, ms));
+    window.confirm = () => true;
+    // sections collapse
+    const sec = document.querySelector('[data-sec="media"]'); sec.querySelector('.tg').click();
+    log.push('collapsed:' + (sec.classList.contains('collapsed') && getComputedStyle(sec.querySelector('.body')).display === 'none'));
+    sec.querySelector('.ttl').click(); log.push('reopened:' + !sec.classList.contains('collapsed'));
+    const main = document.querySelector('main'); main.scrollTop = 600; await wait(200);
+    const hs = [...document.querySelectorAll('.sec > h2')].map(h => Math.round(h.getBoundingClientRect().top - main.getBoundingClientRect().top));
+    log.push('stickyTops:' + hs.join(','));
+    // borrowed picture goes home when unticked
+    const other = [...document.querySelectorAll('[data-mt]')].map(b => b.dataset.mt).find(t => t !== '*' && t !== cur);
+    document.querySelector(`[data-mt="${other}"]`).click(); await wait(300);
+    const first = document.querySelector('.mcard .name').textContent;
+    document.querySelector('.mcard').dispatchEvent(new MouseEvent('dblclick', { bubbles:true })); await wait(3000);
+    const bor = (tl.borrowed || []).length; log.push('borrowed:' + bor);
+    const card = [...document.querySelectorAll('#kept .card')].find(c => tl.items.find(x => x.id === c.dataset.id && borrowedFrom(x)));
+    card.querySelector('[data-f="keep"]').checked = false; card.querySelector('[data-f="keep"]').dispatchEvent(new Event('change')); await wait(3000);
+    log.push('afterUntick borrowed:' + (tl.borrowed || []).length, 'inDropped:' + document.querySelectorAll('#dropped .card').length);
+    const back = await (await fetch('/api/media?m=' + encodeURIComponent(cur))).json();
+    log.push('homeHasItBack:' + back.find(m => m.name === other).items.some(m => m.id.endsWith(first)));
+    // unassigned music
+    const uc = document.querySelector('[data-uc]'); log.push('unassignedBtn:' + !!uc);
+    if (uc) { uc.click(); await wait(4000); log.push('claimed:' + tl.music.playlist.length, 'left:' + unassigned.songs.length); }
+    // offline: nothing may be lost
+    const realFetch = window.fetch; window.fetch = () => Promise.reject(new TypeError('offline'));
+    const k0 = kept()[0]; k0.duration_override = 7.5; saveSoon(); await wait(1500);
+    log.push('banner:' + ($('saveBanner').style.display === 'flex'), 'draft:' + !!lsGet(draftKey()), 'dirty:' + dirty);
+    window.fetch = realFetch; await wait(5000);
+    log.push('recovered:' + ($('saveBanner').style.display === 'none'), 'dirty:' + dirty, 'saved:' + ((await (await realFetch('/api/timeline?m=' + encodeURIComponent(cur))).json()).items.find(x => x.id === k0.id).duration_override));
+    document.title = 'ROBUST ' + log.join(' | ');
+  }
+  if (location.hash === '#perf') {
+    const log = []; window.onerror = (m) => log.push('JSERR ' + m);
+    const wait = (ms) => new Promise(r => setTimeout(r, ms));
+    const time = async (label, fn) => { const t = performance.now(); await fn(); log.push(label + ':' + Math.round(performance.now() - t) + 'ms'); };
+    log.push('items:' + tl.items.length);
+    await time('drawAll', () => drawAll());
+    await time('drawTimeline', () => drawTimeline());
+    await time('renderLive', () => renderLive());
+    await time('saveRoundtrip', () => save());
+    await time('reorderViaStoryboard', async () => { const k = kept(); await addMedia(cur, [k[0].id], k[10].start + k[10].duration); await wait(900); });
+    await time('splitAt', async () => { setTime(kept()[3].start + 1); await splitHere(); });
+    await time('mediaPanelAll', async () => { mediaTab = '*'; mediaData = null; await drawBorrow(); });
+    log.push('domNodes:' + document.getElementsByTagName('*').length);
+    document.title = 'PERF ' + log.join(' | ');
+  }
   if (location.hash === '#media') {
     const log = []; window.onerror = (m) => log.push('JSERR ' + m);
     const wait = (ms) => new Promise(r => setTimeout(r, ms));
@@ -646,12 +753,15 @@ async function loadMonths() {
   $('monthSel').innerHTML = months.filter(m => !m.hidden_by).map(m => `<option value="${esc(m.name)}">${esc(m.name)}${m.combined ? ' (combined)' : ''}</option>`).join('');
   if (cur) $('monthSel').value = cur;
 }
+const sb2 = () => !!$('btnSplitBack');
 function drawBanner() {
   const b = $('banner'), c = monthColor(cur);
   b.style.borderLeftColor = c;
   const src = (tl.combined_from || []).map(n => `<span class="src" style="background:${monthColor(n)}">${esc(n)}</span>`).join('');
   b.innerHTML = `<span class="big">${esc(cur.replace(/^\d+-/, ''))}</span>` + (tl.combined_from ? `<span class="mut">combined month, made of</span>${src}<button id="btnSplitBack" title="Remove the combined month and bring the originals back">Split back</button>` : '');
   const sb = $('btnSplitBack'); if (sb) sb.onclick = splitBack;
+  if ((tl.skipped || []).length) b.innerHTML += `<span class="badge" style="background:#a335" title="${esc(tl.skipped.map(x => x.id + ': ' + x.error).join('\n'))}">⚠ ${tl.skipped.length} file${tl.skipped.length === 1 ? '' : 's'} could not be read and ${tl.skipped.length === 1 ? 'was' : 'were'} left out: ${esc(tl.skipped.slice(0, 3).map(x => x.id.split('/').pop()).join(', '))}${tl.skipped.length > 3 ? '…' : ''}</span>`;
+  if (sb2()) $('btnSplitBack').onclick = splitBack;
 }
 async function openCombine() {
   await loadMonths();
@@ -697,8 +807,16 @@ async function loadMonth(name) {
   try { const u = new URL(location.href); u.searchParams.set('m', name); history.replaceState(null, '', u); } catch (_) { /* file:// etc. */ }
   clearStage();
   tl = await api('/api/timeline');
+  if (tl.restored_from_backup) toast('The month file was damaged; the last backup was loaded instead (the damaged file is kept as timeline.json.corrupt).');
+  try {
+    const d = JSON.parse(lsGet(draftKey()) || 'null');
+    if (d && d.tl && d.rev === tl.rev && JSON.stringify({ ...d.tl, rev: 0 }) !== JSON.stringify({ ...tl, rev: 0 })
+        && confirm(`Unsaved changes from ${new Date(d.ts).toLocaleString()} were found for ${cur} (the page was closed or the server stopped before they were saved).\n\nRestore them?`)) { tl = d.tl; setTimeout(() => saveSoon(), 0); }
+    else lsSet(draftKey(), null);
+  } catch (_) { lsSet(draftKey(), null); }
   lastSaved = JSON.stringify(tl); undoStack = []; undoPending = false;
   songs = await api('/api/songs');
+  try { unassigned = await api('/api/unassigned'); } catch (e) { unassigned = { folder: null, songs: [] }; }
   await pollStatus(true);
   drawAll();
 }
@@ -774,8 +892,12 @@ function musicPanel(open) {
       <div class="songs" id="avail" style="margin-top:6px">${songs.map(s => `<div class="song ${used.has(s.file) ? 'in' : ''}">
         <button data-sp="${esc(s.file)}" title="Listen">▶</button><span class="n" title="${esc(s.file)}">${esc(s.name)}</span>
         <span class="badge">${s.source}</span>${used.has(s.file) ? '<span class="badge ok">playing</span>' : ''}
+        ${s.source === 'month' && unassigned.folder && !used.has(s.file) ? `<button data-ur="${esc(s.file)}" title="Move this song back to ${esc(unassigned.folder)}">→ unassigned</button>` : ''}
         ${manual ? '' : (play.includes(s.file) ? '' : `<button data-pa="${esc(s.file)}" title="Let automatic fitting use it">Add to playlist</button>`)}
         <button data-pl="${esc(s.file)}" title="${manual ? 'Add to the timeline' : 'Play it on top of the main music'}">${manual ? 'Add to timeline' : 'Add as layer'}</button></div>`).join('') || '<span class="mut">No songs found in the month\'s music folder or the library folder.</span>'}</div>
+      ${unassigned.folder ? `<div class="row" style="margin-top:10px"><b>${esc(unassigned.folder)}</b> <span class="mut">${unassigned.songs.length} song${unassigned.songs.length === 1 ? '' : 's'} not assigned to any month</span></div>
+      <div class="songs">${unassigned.songs.map(u => `<div class="song"><button data-sp="${esc(u.file)}" title="Listen">▶</button><span class="n" title="${esc(u.file)}">${esc(u.name)}</span><span class="badge">unassigned</span>
+        <button data-uc="${esc(u.file)}" title="Move the file into this month's music folder and use it here">Move into ${esc(cur.replace(/^\d+-/, ''))}</button></div>`).join('') || '<span class="mut">Nothing left in there.</span>'}</div>` : ''}
       <div class="row" style="margin-top:8px"><span>Library folder ${i('library')}</span>
         <span><input id="libPath" type="text" style="width:210px" placeholder="e.g. D:/Music/Videos" value="${esc(tl.music.library || '')}"><button id="libSet">Set</button></span></div>
     </details>
@@ -794,6 +916,12 @@ function bindMusic() {
     document.querySelectorAll('[data-sp]').forEach(x => x.textContent = '▶');
     audio.src = src; audio.dataset.src = src; audio.play(); b.textContent = '⏸';
   });
+  const moveSong = (attr, action) => document.querySelectorAll(`[${attr}]`).forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try { await save(); await act('/api/music', { action, file: b.getAttribute(attr) }); songs = await api('/api/songs'); unassigned = await api('/api/unassigned'); availOpen = true; drawAll(); }
+    catch (e) { b.disabled = false; }
+  });
+  moveSong('data-uc', 'claim'); moveSong('data-ur', 'release');
   document.querySelectorAll('[data-pa]').forEach(b => b.onclick = async () => { await act('/api/music', { action:'add', file:b.dataset.pa, timeline:tl }); songs = await api('/api/songs'); drawAll(); });
   document.querySelectorAll('[data-pl]').forEach(b => b.onclick = () => addLayer(b.dataset.pl));
   document.querySelectorAll('[data-rc]').forEach(b => b.onclick = () => removeClip(b.dataset.rc));
@@ -868,22 +996,25 @@ function card(it, idx) {
       <span><button data-f="addcard" title="Insert a colour card after this">+ card</button>${it.kind === 'card' ? ' <button data-f="del" title="Remove this card">✕</button>' : ''}</span></div>` : ''}
   </div>`;
   d.querySelectorAll('[data-f]').forEach(el => {
-    const f = el.dataset.f;
+    const f = el.dataset.f, iid = it.id;
+    const live = () => tl.items.find(x => x.id === iid);   // the card may outlive a reload of tl, so look the item up when the event happens
     const num = () => el.value === '' ? null : parseFloat(el.value);
     if (f === 'sel') { el.onclick = () => selectItem(it.id, true); return; }
     el.onclick = async () => {
       if (el.tagName !== 'BUTTON') return;
+      const it = live(); if (!it) return; const idx = tl.items.indexOf(it);
       if (f === 'trim') return openTrim(it);
       if (f === 'back') { await act('/api/borrow', { action:'return', ids:[it.id] }); mediaData = null; return drawAll(); }
       if (f === 'addcard') { await act('/api/card', { after_id: it.id }); return drawAll(); }
-      if (f === 'del') { tl.items = tl.items.filter(x => x.id !== it.id); return saveSoon(); }
+      if (f === 'del') { if (borrowedFrom(it)) return returnBorrowed([it.id]); tl.items = tl.items.filter(x => x.id !== it.id); return saveSoon(); }
       const k = keptIdx(), pos = k.indexOf(idx), j = k[pos + (f === 'up' ? -1 : 1)];
       if (j === undefined) return;
       [tl.items[idx], tl.items[j]] = [tl.items[j], tl.items[idx]]; saveSoon();
     };
     el.onchange = () => {
       if (el.tagName === 'BUTTON') return;
-      if (f === 'keep') it.keep = el.checked;
+      const it = live(); if (!it) return;
+      if (f === 'keep') { if (!el.checked && borrowedFrom(it)) return returnBorrowed([it.id]); it.keep = el.checked; }
       else if (f === 'ov') it.duration_override = num();
       else if (f === 'snd') it.keep_audio = el.value === '' ? null : el.value === '1';
       else if (f === 'vol') it.audio_volume = num() ?? 1;
@@ -909,6 +1040,12 @@ function card(it, idx) {
   return d;
 }
 const borrowedFrom = (it) => (tl.borrowed || []).find(b => b.id === it.id);
+// A picture taken from another month goes back to that month when you remove it here (not into "Dropped").
+async function returnBorrowed(ids) {
+  const homes = [...new Set(ids.map(i => (tl.borrowed.find(b => b.id === i) || {}).from))].join(', ');
+  try { await save(); await act('/api/borrow', { action: 'return', ids }); } catch (e) { return; }
+  mediaData = null; drawAll(); toast(`Sent back to ${homes}`, true);
+}
 const monthHue = (name) => { const names = (months || []).map(m => m.name); const i = names.indexOf(name); return ((i < 0 ? names.length : i) + 1) * 47 % 360; };
 const monthColor = (name) => `hsl(${monthHue(name)} 65% 50%)`;
 let mediaTab = '', mediaData = null, mediaPick = new Set();
@@ -932,7 +1069,7 @@ async function addMedia(month, ids, t) {
 }
 async function drawBorrow() {
   const box = $('borrow');
-  if (tl.combined_from) { box.className = 'mut'; box.textContent = 'This is a combined month: its pictures stay in their original month folders (see the coloured month labels). Use “Split back” above to work on the single months again.'; return; }
+  if (tl.combined_from) { $('mtabs').innerHTML = ''; $('bmGo').style.display = 'none'; box.className = 'mut'; box.textContent = 'This is a combined month: its pictures stay in their original month folders (see the coloured month labels). Use “Split back” above to work on the single months again.'; return; }
   if (!mediaData) { try { mediaData = await api('/api/media'); } catch (e) { return; } }
   const all = mediaData;
   if (!all.length) return;
@@ -940,12 +1077,11 @@ async function drawBorrow() {
   const used = new Set(kept().filter(i => i.kind !== 'card').map(isrc));
   const shown = mediaTab === '*' ? all : all.filter(o => o.name === mediaTab);
   box.className = '';
-  box.innerHTML = `<div class="mtabs"><button data-mt="*" class="${mediaTab === '*' ? 'on' : ''}">All months</button>${all.map(o =>
-      `<button data-mt="${esc(o.name)}" class="${mediaTab === o.name ? 'on' : ''}" style="border-bottom:3px solid ${monthColor(o.name)}">${esc(o.name)}${o.name === cur ? ' ★' : ''}</button>`).join('')}</div>
-    <div class="row" style="justify-content:flex-start;gap:8px;margin:8px 0"><span class="mut">Drag onto the Clips row below, double-click to add at the playhead, or tick several and press
-      </span><button id="bmGo" class="primary" ${mediaPick.size ? '' : 'disabled'}>Add ${mediaPick.size || ''} at playhead</button></div>
-    <div class="grid" id="bmGrid"></div>`;
-  box.querySelectorAll('[data-mt]').forEach(b => b.onclick = () => { mediaTab = b.dataset.mt; mediaPick.clear(); drawBorrow(); });
+  $('mtabs').innerHTML = `<button data-mt="*" class="${mediaTab === '*' ? 'on' : ''}">All months</button>${all.map(o =>
+      `<button data-mt="${esc(o.name)}" class="${mediaTab === o.name ? 'on' : ''}" style="border-bottom:3px solid ${monthColor(o.name)}">${esc(o.name)}${o.name === cur ? ' ★' : ''}</button>`).join('')}`;
+  $('bmGo').style.display = ''; $('bmGo').disabled = !mediaPick.size; $('bmGo').textContent = `Add ${mediaPick.size || ''} at playhead`;
+  box.innerHTML = `<div class="mut" style="margin:0 0 8px">Drag a picture onto the Clips row in the editor below, double-click it to add at the playhead, or tick several and press “Add” above.</div><div class="grid" id="bmGrid"></div>`;
+  $('mtabs').querySelectorAll('[data-mt]').forEach(b => b.onclick = () => { mediaTab = b.dataset.mt; mediaPick.clear(); drawBorrow(); });
   const grid = $('bmGrid');
   for (const mo of shown) {
     const usedHere = new Set(mo.name === cur ? used : mo.used);
@@ -1010,9 +1146,12 @@ function drawStoryboard() {
   themeLegend();
   if (drawStoryboard.month !== cur) { drawStoryboard.month = cur; mediaData = null; mediaPick.clear(); mediaTab = cur; }
   if (!mediaData) drawBorrow();
+  const sig = JSON.stringify([tl.items, tl.borrowed, tl.similar_groups, sel && sel.id, cur]);
+  if (sig === drawStoryboard.sig && $('kept').children.length) return;   // nothing the cards show has changed: keep the DOM (fast, keeps focus)
+  drawStoryboard.sig = sig;
   $('kept').replaceChildren(...tl.items.map((it, n) => it.keep ? card(it, n) : null).filter(Boolean));
   const dropped = tl.items.map((it, n) => it.keep ? null : card(it, n)).filter(Boolean);
-  $('dh').textContent = `Dropped (${dropped.length}) — tick “keep” to restore`;
+  $('dh').textContent = `Dropped (${dropped.length}) — tick “keep” to restore`; $('btnRestoreAll').style.display = dropped.length ? '' : 'none';
   $('dropped').replaceChildren(...dropped);
 }
 

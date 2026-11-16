@@ -23,14 +23,16 @@ def month_folders(year_dir: Path) -> list[Path]:
 
 def join_months(parts: list[Path], out: Path) -> Path:
     """Concatenate month renders without re-encoding (they share codec, size and fps)."""
+    part = out.with_name(out.stem + ".part" + out.suffix)
     with tempfile.TemporaryDirectory() as td:
         listing = Path(td) / "list.txt"
         listing.write_text("".join(f"file '{p.resolve().as_posix()}'\n" for p in parts), encoding="utf-8")
         subprocess.run(
             [find_tool("ffmpeg"), "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(listing),
-             "-c", "copy", str(out)],
+             "-c", "copy", str(part)],
             check=True, capture_output=True,
         )  # fmt: skip
+        part.replace(out)
     return out
 
 
@@ -50,7 +52,10 @@ def build_year(year_dir: Path, out: Path | None = None, config: Path | None = No
         if not tl_path.exists():
             save_timeline(build_timeline(d, cfg), tl_path)
         if not mp4.exists() or mp4.stat().st_mtime < tl_path.stat().st_mtime:
-            render_month(load_timeline(tl_path), d, mp4)
+            try:
+                render_month(load_timeline(tl_path), d, mp4)
+            except Exception as e:  # name the month that failed; the other months' videos are kept for next time
+                raise RuntimeError(f"{d.name}: {e}") from e
         parts.append(mp4)
     if progress:
         progress(len(todo), len(todo), "", "joining")
