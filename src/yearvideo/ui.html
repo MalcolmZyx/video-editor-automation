@@ -26,6 +26,19 @@
   header h1 { font-size:15px; margin:0; }
 
   main { flex:1; overflow:auto; padding:14px 16px 28px; }
+  #notifBtn { position:relative; }
+  #notifN { background:var(--bad); color:#fff; margin-left:4px; display:none; }
+  #notifPanel { position:fixed; top:54px; right:14px; width:min(460px, 94vw); max-height:70vh; overflow:auto; z-index:80; background:var(--panel); border:1px solid var(--acc); border-radius:10px; box-shadow:0 10px 30px #0008; display:none; }
+  #notifPanel .nh { position:sticky; top:0; display:flex; gap:8px; align-items:center; padding:8px 10px; background:var(--panel); border-bottom:1px solid var(--line); }
+  #notifPanel .nh b { flex:1; }
+  #notifPanel .n { display:grid; grid-template-columns:8px 1fr auto; gap:8px; padding:8px 10px; border-bottom:1px solid var(--line); align-items:start; }
+  #notifPanel .n .dot { width:8px; height:8px; border-radius:50%; margin-top:5px; background:var(--mut); }
+  #notifPanel .n.error .dot { background:var(--bad); } #notifPanel .n.ok .dot { background:#2a7; } #notifPanel .n.info .dot { background:var(--acc); }
+  #notifPanel .n.unread { background:#5aa9ff12; }
+  #notifPanel .n small { color:var(--mut); display:block; }
+  #notifPanel .empty { padding:18px; color:var(--mut); text-align:center; }
+  #snapLine { position:absolute; top:0; bottom:0; width:0; border-left:2px dashed #ffd23f; z-index:8; pointer-events:none; }
+  #keys table { border-collapse:collapse; width:100%; } #keys td { padding:3px 8px; border-bottom:1px solid var(--line); } #keys td:first-child { white-space:nowrap; font-family:monospace; color:var(--acc); }
   .sec > h2 { position:sticky; top:-14px; z-index:15; background:var(--bg); margin:0; padding:12px 0 8px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
   .sec { margin-top:10px; }
   .sec .tg { cursor:pointer; user-select:none; width:22px; height:22px; padding:0; text-align:center; line-height:20px; }
@@ -166,6 +179,10 @@
     <span id="status"></span>
   </div>
   <div class="grp">
+    <button id="notifBtn" title="Notifications: everything the editor told you, until you delete it">🔔<span id="notifN" class="badge">0</span></button>
+    <button id="btnKeys" title="Keyboard shortcuts (?)">⌨</button>
+  </div>
+  <div class="grp">
     <button id="btnCombine" title="Edit two or more months as one month">Combine months…</button><button class="i" data-k="combine">i</button>
   </div>
   <div class="grp">
@@ -231,7 +248,7 @@
     <div id="tlbar">
       <button id="btnDock" title="Collapse / expand the editor">⇵</button>
       <button id="btnSplit" title="Cut the picture/clip under the playhead in two (S)">✂ Split</button><button class="i" data-k="split">i</button>
-      <button id="btnAddCap">+ Caption at current time</button><button class="i" data-k="caption">i</button>
+      <label title="Captions and songs snap to the playhead and to clip edges while you drag"><input type="checkbox" id="snapOn" checked> Snap</label><button id="btnAddCap">+ Caption at current time</button><button class="i" data-k="caption">i</button>
       <select id="layerSel" title="Pick a song to play ON TOP of the main music"></select>
       <button id="btnAddLayer">+ Add song layer</button><button class="i" data-k="layer">i</button>
       <button class="i" data-k="clips" title="How to edit the Clips row">i</button>
@@ -247,6 +264,7 @@
 <div id="modal"><div class="box" id="trimbox"></div></div>
 <div id="tip"></div>
 <div id="toast"></div>
+<div id="notifPanel"></div>
 <div id="saveBanner"><span id="sbMsg"></span><button id="sbRetry">Retry now</button><button id="sbSave">Download a backup</button></div>
 <audio id="songAudio"></audio>
 
@@ -354,7 +372,33 @@ const isrc = (it) => it.src || it.id;
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const uid = () => Math.random().toString(16).slice(2, 10);
 
-function toast(msg, ok) { const t = $('toast'); t.textContent = msg; t.style.background = ok ? 'var(--ok, #2a7)' : ''; t.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(() => t.style.display = 'none', 6000); }
+// ---- notification centre: nothing is removed until the user deletes it (kept in this browser)
+let notifs = [];
+try { notifs = JSON.parse(localStorage.getItem('yv_notifs') || '[]'); } catch (_) { notifs = []; }
+function saveNotifs() { try { localStorage.setItem('yv_notifs', JSON.stringify(notifs.slice(-300))); } catch (_) { /* full */ } }
+function notify(msg, kind = 'info') {
+  const last = notifs[notifs.length - 1], now = Date.now();
+  if (last && last.msg === msg && last.kind === kind && now - last.ts < 600000) { last.count = (last.count || 1) + 1; last.ts = now; last.read = false; }
+  else notifs.push({ id: now + '' + Math.random().toString(36).slice(2, 6), ts: now, kind, msg, month: typeof cur === 'string' ? cur : '', read: false });
+  saveNotifs(); drawNotifBadge(); if ($('notifPanel').style.display === 'block') drawNotifs();
+}
+function drawNotifBadge() { const n = notifs.filter(x => !x.read).length, b = $('notifN'); b.textContent = n; b.style.display = n ? '' : 'none'; }
+function drawNotifs() {
+  const box = $('notifPanel'); notifs.forEach(x => { x.__unread = !x.read; });
+  box.innerHTML = `<div class="nh"><b>Notifications (${notifs.length})</b><button id="nClear" ${notifs.length ? '' : 'disabled'}>Delete all</button><button id="nClose">✕</button></div>` +
+    (notifs.length ? [...notifs].reverse().map(x => `<div class="n ${x.kind} ${x.__unread ? 'unread' : ''}" data-id="${x.id}"><span class="dot"></span>
+      <div>${esc(x.msg)}${x.count > 1 ? ` <b>×${x.count}</b>` : ''}<small>${new Date(x.ts).toLocaleString()}${x.month ? ' · ' + esc(x.month) : ''}</small></div><button data-del="${x.id}" title="Delete this notification">🗑</button></div>`).join('')
+      : '<div class="empty">No notifications.</div>');
+  box.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { notifs = notifs.filter(x => x.id !== b.dataset.del); saveNotifs(); drawNotifBadge(); drawNotifs(); });
+  $('nClear').onclick = () => { notifs = []; saveNotifs(); drawNotifBadge(); drawNotifs(); };
+  $('nClose').onclick = () => { box.style.display = 'none'; };
+  notifs.forEach(x => { x.read = true; delete x.__unread; }); saveNotifs(); drawNotifBadge();
+}
+function toggleNotifs() { const b = $('notifPanel'); if (b.style.display === 'block') { b.style.display = 'none'; return; } b.style.display = 'block'; drawNotifs(); }
+window.addEventListener('storage', (e) => { if (e.key === 'yv_notifs') { try { notifs = JSON.parse(e.newValue || '[]'); } catch (_) { notifs = []; } drawNotifBadge(); if ($('notifPanel').style.display === 'block') drawNotifs(); } });
+document.addEventListener('pointerdown', (e) => { const p = $('notifPanel'); if (p.style.display === 'block' && !p.contains(e.target) && !e.target.closest('#notifBtn')) p.style.display = 'none'; }, true);
+function toast(msg, ok) {
+  notify(msg, ok === true ? 'ok' : ok === 'info' ? 'info' : 'error'); if (ok === 'info') ok = true; const t = $('toast'); t.textContent = msg; t.style.background = ok ? 'var(--ok, #2a7)' : ''; t.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(() => t.style.display = 'none', 6000); }
 const lsGet = (k) => { try { return localStorage.getItem(k); } catch (_) { return null; } };
 const lsSet = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (_) { /* private mode / full */ } };
 function initSections() {
@@ -381,7 +425,8 @@ async function api(path, body) {
   return j;
 }
 let undoStack = [], undoPending = false, lastSaved = '';
-function pushUndo() { if (undoPending) return; undoStack.push(lastSaved); if (undoStack.length > 60) undoStack.shift(); undoPending = true; }
+let redoStack = [];
+function pushUndo() { if (undoPending) return; redoStack.length = 0; undoStack.push(lastSaved); if (undoStack.length > 60) undoStack.shift(); undoPending = true; }
 let dirty = false, retryN = 0;
 const draftKey = () => 'yv_draft_' + cur;
 function writeDraft() { try { lsSet(draftKey(), JSON.stringify({ rev: tl.rev, ts: Date.now(), tl })); } catch (_) { /* too big: fine */ } }
@@ -395,9 +440,11 @@ async function save() {
   catch (e) {
     if (e.stale) { banner('Not saved: this month changed in another window. Reload to get the latest.'); return; }
     // never lose work: the draft stays in this browser, and we keep retrying with growing pauses
+    if (retryN === 0) notify('A save failed; your edits are kept and saving is retrying.', 'error');
     retryN++; banner(`Not saved yet (attempt ${retryN}). Your edits are safe in this page — retrying…`);
     saving = setTimeout(save, Math.min(2000 * retryN, 15000)); return;
   }
+  if (retryN) notify('Saved after the connection came back; nothing was lost.', 'ok');
   retryN = 0; banner('');
   if (dragging) return;
   tl = fresh; dirty = false; lsSet(draftKey(), null); undoPending = false; lastSaved = JSON.stringify(tl); drawAll();
@@ -412,8 +459,29 @@ async function act(path, body) {   // server-side edits (music, cards): undoable
 }
 async function undo() {
   if (!undoStack.length) return toast('Nothing to undo');
+  redoStack.push(JSON.stringify(tl));
   const rev = tl.rev; tl = JSON.parse(undoStack.pop()); tl.rev = rev; sel = null; undoPending = false;
   tl = await api('/api/timeline', tl); lastSaved = JSON.stringify(tl); drawAll();
+}
+async function redo() {
+  if (!redoStack.length) return toast('Nothing to redo', 'info');
+  undoStack.push(JSON.stringify(tl));
+  const rev = tl.rev; tl = JSON.parse(redoStack.pop()); tl.rev = rev; sel = null; undoPending = false;
+  tl = await api('/api/timeline', tl); lastSaved = JSON.stringify(tl); drawAll();
+}
+const seekTo = (t) => { t = clamp(t, 0, total()); if (tab === 'live') setTime(t); else if ($('vid')) $('vid').currentTime = t; };
+const edges = () => [...new Set(kept().flatMap(x => [x.start, x.start + x.duration]))].sort((a, b) => a - b);
+function showKeys() {
+  $('trimbox').innerHTML = `<div id="keys"><h3 style="margin:0 0 8px">Keyboard shortcuts</h3><table>
+    <tr><td>Space</td><td>Play / pause</td></tr><tr><td>← →</td><td>Move the playhead 1 s (Shift: 5 s)</td></tr>
+    <tr><td>↑ ↓</td><td>Jump to the previous / next cut</td></tr><tr><td>Home / End</td><td>Start / end of the video</td></tr>
+    <tr><td>S</td><td>Split the picture/clip under the playhead</td></tr><tr><td>Delete / Backspace</td><td>Remove the selected item</td></tr>
+    <tr><td>Ctrl+Z</td><td>Undo</td></tr><tr><td>Ctrl+Y / Ctrl+Shift+Z</td><td>Redo</td></tr><tr><td>Ctrl+S</td><td>Save now</td></tr>
+    <tr><td>+ / − / 0</td><td>Zoom the timeline in / out / fit</td></tr><tr><td>Ctrl+mouse wheel</td><td>Zoom the timeline</td></tr>
+    <tr><td>Esc</td><td>Deselect / close</td></tr><tr><td>Double-click a clip</td><td>Trim it (videos)</td></tr>
+    <tr><td>Drag on the ruler</td><td>Scrub</td></tr><tr><td>?</td><td>This list</td></tr></table>
+    <div class="row" style="justify-content:flex-end;margin-top:8px"><button id="keysClose" class="primary">Close</button></div></div>`;
+  $('modal').style.display = 'grid'; $('keysClose').onclick = closeTrim;
 }
 function removeClip(id) {
   const c = (tl.audio_clips || []).find(x => x.id === id); if (!c) return;
@@ -449,13 +517,28 @@ document.addEventListener('click', (e) => {
   } else if (!e.target.closest('#tip')) tip.style.display = 'none';
 }, true);
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') { $('tip').style.display = 'none'; closeTrim(); }
+  const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
+  if (e.key === 'Escape') { $('tip').style.display = 'none'; $('notifPanel').style.display = 'none'; if ($('modal').style.display === 'grid') closeTrim(); else if (sel) { sel = null; drawInspector(); drawTimeline(); } }
+  if (mod && k === 's') { e.preventDefault(); clearTimeout(saving); save().then(() => toast('Saved', true)).catch(() => {}); return; }   // never open the browser's "save page" dialog
   const ae = document.activeElement, tag = ae ? ae.tagName : '';
   if (/INPUT|TEXTAREA|SELECT/.test(tag) || (ae && ae.isContentEditable) || $('modal').style.display === 'grid') return;
+  if (mod && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); return redo(); }
+  if (!mod && (e.key === '?' || e.key === 'F1')) { e.preventDefault(); return showKeys(); }
+  if (!mod && e.key === 'ArrowLeft') { e.preventDefault(); return seekTo(curTime() - (e.shiftKey ? 5 : 1)); }
+  if (!mod && e.key === 'ArrowRight') { e.preventDefault(); return seekTo(curTime() + (e.shiftKey ? 5 : 1)); }
+  if (!mod && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+    e.preventDefault(); const t = curTime(), E = edges();
+    return seekTo(e.key === 'ArrowUp' ? ([...E].reverse().find(x => x < t - 0.05) ?? 0) : (E.find(x => x > t + 0.05) ?? total()));
+  }
+  if (!mod && e.key === 'Home') { e.preventDefault(); return seekTo(0); }
+  if (!mod && e.key === 'End') { e.preventDefault(); return seekTo(total()); }
+  if (!mod && (e.key === '+' || e.key === '=')) { e.preventDefault(); $('zoom').value = Math.min(12, +$('zoom').value + 1); return drawTimeline(); }
+  if (!mod && (e.key === '-' || e.key === '_')) { e.preventDefault(); $('zoom').value = Math.max(1, +$('zoom').value - 1); return drawTimeline(); }
+  if (!mod && e.key === '0') { e.preventDefault(); $('zoom').value = 1; return drawTimeline(); }
   if (e.key === ' ' && tag !== 'BUTTON' && tab === 'live') { e.preventDefault(); togglePlay(); }
   else if ((e.key === 'Backspace' || e.key === 'Delete') && sel) { e.preventDefault(); deleteSelected(); }
   else if (e.key.toLowerCase() === 's' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); splitHere(); }
-  else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
+  else if (mod && k === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
 });
 
 // ------------------------------------------------------------------ resizable editor
@@ -485,7 +568,8 @@ function initResize() {
 
 // ------------------------------------------------------------------ loading
 async function init() {
-  initResize(); initSections();
+  initResize(); initSections(); drawNotifBadge();
+  $('notifBtn').onclick = toggleNotifs; $('btnKeys').onclick = showKeys;
   await loadMonths();
   $('monthSel').onchange = () => loadMonth($('monthSel').value);
   $('btnCombine').onclick = openCombine;
@@ -507,6 +591,7 @@ async function init() {
   $('btnAddLayer').onclick = addLayer;
   $('btnDock').onclick = () => $('dock').classList.toggle('min');
   $('zoom').oninput = drawTimeline;
+  $('tlscroll').addEventListener('wheel', (e) => { if (!(e.ctrlKey || e.metaKey)) return; e.preventDefault(); $('zoom').value = clamp(+$('zoom').value + (e.deltaY < 0 ? 1 : -1), 1, 12); drawTimeline(); }, { passive: false });
   $('btnPlay').onclick = togglePlay;
   $('scrub').oninput = () => { setTime($('scrub').value / 1000 * total()); };
   document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => setTab(b.dataset.tab));
@@ -653,6 +738,44 @@ async function init() {
     log.push('domNodes:' + document.getElementsByTagName('*').length);
     document.title = 'PERF ' + log.join(' | ');
   }
+  if (location.hash === '#usable') {
+    const log = []; window.onerror = (m) => log.push('JSERR ' + m);
+    const wait = (ms) => new Promise(r => setTimeout(r, ms));
+    const key = (k, o = {}) => document.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, ...o }));
+    // notifications
+    notifs = []; saveNotifs(); drawNotifBadge();
+    toast('first problem'); toast('all good', true); toast('first problem'); toast('first problem');
+    log.push('n:' + notifs.length, 'badge:' + $('notifN').textContent, 'x3:' + notifs[notifs.length - 1].count);
+    $('notifBtn').click(); log.push('open:' + ($('notifPanel').style.display === 'block'), 'rows:' + $('notifPanel').querySelectorAll('.n').length, 'badgeAfterOpen:' + $('notifN').style.display);
+    await wait(4000); log.push('stillThere:' + notifs.length, 'persisted:' + JSON.parse(localStorage.getItem('yv_notifs')).length);
+    $('notifPanel').querySelector('[data-del]').click(); log.push('afterDelete:' + notifs.length);
+    $('nClear').click(); log.push('afterClear:' + notifs.length); $('nClose').click();
+    // redo
+    const k0 = kept()[0], d0 = k0.duration_override; k0.duration_override = 6; saveSoon(); await wait(1200);
+    key('z', { ctrlKey: true }); await wait(1200); const undone = kept()[0].duration_override;
+    key('y', { ctrlKey: true }); await wait(1200); log.push('undo:' + (undone === d0), 'redo:' + (kept()[0].duration_override === 6));
+    // keys
+    seekTo(0); key('ArrowRight'); log.push('right:' + curTime().toFixed(1)); key('ArrowRight', { shiftKey: true }); log.push('shiftRight:' + curTime().toFixed(1));
+    key('ArrowDown'); const E = edges(); log.push('nextCut:' + (E.includes(+curTime().toFixed(2)) || Math.abs(curTime() - E.find(x => x > 6.05)) < .01));
+    key('Home'); log.push('home:' + curTime()); key('End'); log.push('end:' + (Math.abs(curTime() - total()) < .01));
+    const z0 = $('zoom').value; key('+'); log.push('zoom:' + z0 + '->' + $('zoom').value); key('0'); log.push('fit:' + $('zoom').value);
+    key('?'); log.push('keysModal:' + ($('modal').style.display === 'grid')); key('Escape'); log.push('closed:' + ($('modal').style.display !== 'grid'));
+    key('s', { ctrlKey: true }); await wait(1500); log.push('ctrlS:' + !dirty);
+    // ruler scrub
+    const ru = $('ruler'), rr = ru.getBoundingClientRect();
+    const pe = (el, type, x) => el.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: x, clientY: rr.top + 5, pointerId: 1 }));
+    pe(ru, 'pointerdown', rr.left + 5 * pps()); pe(ru, 'pointermove', rr.left + 12 * pps()); pe(ru, 'pointerup', rr.left + 12 * pps());
+    log.push('scrub:' + curTime().toFixed(1));
+    // snapping: caption dragged near a clip edge lands exactly on it
+    addCaption(3.2); await wait(900); const cap = tl.captions[tl.captions.length - 1], b = document.querySelector(`[data-cap="${cap.id}"]`), edge = kept()[1].start;
+    const x0 = b.getBoundingClientRect().left + 8, want = edge * pps() - (cap.start * pps()) + 3;
+    pe(b, 'pointerdown', x0); pe(b, 'pointermove', x0 + want); pe(b, 'pointerup', x0 + want); await wait(900);
+    log.push('snapped:' + (Math.abs(tl.captions.find(c => c.id === cap.id).start - edge) < .02) + ' edge:' + edge.toFixed(2) + ' start:' + tl.captions.find(c => c.id === cap.id).start.toFixed(2));
+    // typo guard
+    const inp = document.querySelector('#kept [data-f="ov"]'); inp.value = '-3'; inp.dispatchEvent(new Event('change')); await wait(1200);
+    log.push('minLength:' + kept()[0].duration_override + '|' + (notifs.some(n => /at least 0.2/.test(n.msg))));
+    document.title = 'USABLE ' + log.join(' | ');
+  }
   if (location.hash === '#media') {
     const log = []; window.onerror = (m) => log.push('JSERR ' + m);
     const wait = (ms) => new Promise(r => setTimeout(r, ms));
@@ -775,7 +898,7 @@ async function openCombine() {
     const names = [...$('trimbox').querySelectorAll('input:checked')].map(i => i.value);
     if (names.length < 2) return toast('Tick at least two months');
     $('cbGo').disabled = true;
-    try { await save(); const r = await api('/api/combine', { months: names }); closeTrim(); await loadMonths(); await loadMonth(r.name); }
+    try { await save(); const r = await api('/api/combine', { months: names }); closeTrim(); await loadMonths(); await loadMonth(r.name); notify(`Combined ${names.join(' + ')} into ${r.name}`, 'ok'); }
     catch (e) { $('cbGo').disabled = false; }
   };
 }
@@ -792,14 +915,15 @@ async function startYear() {
 }
 async function pollYear(quiet) {
   let st; try { st = await api('/api/year_status'); } catch (e) { return; }
+  const was = pollYear.prev; pollYear.prev = st.status; pollYear.was = was;
   const b = $('yearStatus'), btn = $('btnYear');
   btn.disabled = st.status === 'running';
   if (st.single) { btn.disabled = true; btn.title = 'Open the whole year folder to build the year video'; return; }
   if (st.status === 'running') {
     b.style.display = ''; b.textContent = st.phase === 'joining' ? 'joining months…' : `month ${Math.min(st.done + 1, st.total || 1)}/${st.total || '?'}: ${st.current || 'starting'}`;
     setTimeout(() => pollYear(), 1500);
-  } else if (st.status === 'error') { b.style.display = ''; b.textContent = 'year failed'; if (!quiet) toast('Year build failed: ' + st.error); }
-  else if (st.status === 'done') { b.style.display = ''; b.innerHTML = '<a href="/year.mp4" target="_blank" style="color:inherit">year.mp4 ready ↗</a>'; }
+  } else if (st.status === 'error') { b.style.display = ''; b.textContent = 'year failed'; if (!quiet || was === 'running') toast('Year build failed: ' + st.error); }
+  else if (st.status === 'done') { if (was === 'running') toast('Year video finished: year.mp4', true); b.style.display = ''; b.innerHTML = '<a href="/year.mp4" target="_blank" style="color:inherit">year.mp4 ready ↗</a>'; }
   else if (st.year_mtime) { b.style.display = ''; b.innerHTML = '<a href="/year.mp4" target="_blank" style="color:inherit">open last year.mp4 ↗</a>'; }
 }
 async function loadMonth(name) {
@@ -1015,7 +1139,7 @@ function card(it, idx) {
       if (el.tagName === 'BUTTON') return;
       const it = live(); if (!it) return;
       if (f === 'keep') { if (!el.checked && borrowedFrom(it)) return returnBorrowed([it.id]); it.keep = el.checked; }
-      else if (f === 'ov') it.duration_override = num();
+      else if (f === 'ov') { let v = num(); if (v != null && !(v >= 0.2)) { v = 0.2; el.value = '0.2'; toast('A length must be at least 0.2 seconds.', 'info'); } it.duration_override = v; }
       else if (f === 'snd') it.keep_audio = el.value === '' ? null : el.value === '1';
       else if (f === 'vol') it.audio_volume = num() ?? 1;
       else if (f === 'fin') it.fade_in = num();
@@ -1382,7 +1506,8 @@ function setTime(t) {
   if (playing) { tStart = T; t0 = performance.now(); }
   renderLive(); movePlayhead(); updateScrub();
 }
-function updateScrub() { $('scrub').value = Math.round(T / total() * 1000); $('time').textContent = `${T.toFixed(1)} / ${total().toFixed(1)}s`; }
+const tc = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
+function updateScrub() { $('scrub').value = Math.round(T / total() * 1000); $('time').textContent = `${tc(T)} / ${tc(total())}`; }
 function togglePlay() { playing ? pause() : play(); }
 function play() { if (tab !== 'live' || playing) return; if (T >= total() - .05) T = 0; playing = true; tStart = T; t0 = performance.now(); $('btnPlay').textContent = '⏸'; $('songAudio').pause(); requestAnimationFrame(loop); }
 function pause() { playing = false; const b = $('btnPlay'); if (b) b.textContent = '▶'; pauseAllAudio(); if (tl) renderLive(); }
@@ -1435,6 +1560,8 @@ async function pollStatus(quiet) {
   const r = $('rstatus');
   r.textContent = stat.status === 'error' ? 'error' : stat.status === 'running' ? 'rendering…' : stat.status;
   if (stat.status === 'error') toast('Render failed: ' + stat.error);
+  if (pollStatus.prev === 'running' && stat.status === 'done') toast(`${cur}: ${stat.preview ? 'preview' : 'final'} render finished`, true);
+  pollStatus.prev = stat.status;
   if (stat.status === 'running') setTimeout(() => pollStatus(), 1200);
   else if (!quiet) drawRenderedTab();
 }
@@ -1492,7 +1619,9 @@ function drawTimeline() {
   host.querySelectorAll('[data-cap]').forEach(b => b.onpointerdown = (e) => tlDrag(e, b, 'cap'));
   host.querySelectorAll('[data-mc]').forEach(b => b.onpointerdown = (e) => tlDrag(e, b, 'mc'));
   const seek = (e) => { const r = host.getBoundingClientRect(); const t = Math.max(0, Math.min(total(), (e.clientX - r.left) / pps())); if (tab === 'live') setTime(t); else if ($('vid')) $('vid').currentTime = t; };
-  $('ruler').onclick = seek; $('laneC').onclick = (e) => { if (e.target.id === 'laneC') seek(e); };
+  $('ruler').onpointerdown = (e) => { try { $('ruler').setPointerCapture(e.pointerId); } catch (_) { /* synthetic */ } seek(e); $('ruler').onpointermove = (ev) => seek(ev); $('ruler').onpointerup = () => { $('ruler').onpointermove = $('ruler').onpointerup = null; }; };
+  $('laneC').onclick = (e) => { if (e.target.id === 'laneC') { seek(e); if (sel) { sel = null; drawInspector(); drawTimeline(); } } };
+  host.querySelectorAll('[data-ci]').forEach(b => b.ondblclick = (e) => { e.stopPropagation(); const it = tl.items.find(x => x.id === b.dataset.ci); if (it && it.kind === 'video') openTrim(it); });
   $('laneT').onclick = (e) => { if (e.target.id === 'laneT') seek(e); };
   $('laneT').ondblclick = (e) => { if (e.target.id === 'laneT') { const r = host.getBoundingClientRect(); addCaption((e.clientX - r.left) / pps()); } };
   wireClipDrop();
@@ -1500,8 +1629,22 @@ function drawTimeline() {
 }
 function movePlayhead() {
   const t = curTime(), ph = $('playhead'); if (ph) ph.style.left = t * pps() + 'px';
-  if (tab !== 'live') { const el = $('time'); if (el) el.textContent = `${t.toFixed(1)} / ${total().toFixed(1)}s`; }
+  if (tab !== 'live') { const el = $('time'); if (el) el.textContent = `${tc(t)} / ${tc(total())}`; }
 }
+// snapping of captions / songs to the playhead, clip edges, other captions and songs
+function snapT(t, ignoreId) {
+  if (!$('snapOn').checked) return t;
+  const pts = [0, total(), curTime(), ...edges(), ...tl.captions.filter(c => c.id !== ignoreId).flatMap(c => [c.start, c.end]),
+    ...(tl.audio_clips || []).filter(c => c.id !== ignoreId).flatMap(c => [c.start, c.start + c.src_out - c.src_in])];
+  const lim = 8 / pps(); let best = null;
+  for (const q of pts) if (Math.abs(q - t) <= lim && (best === null || Math.abs(q - t) < Math.abs(best - t))) best = q;
+  const host = $('tl'); let line = $('snapLine');
+  if (best !== null && host) { if (!line) { line = document.createElement('div'); line.id = 'snapLine'; host.appendChild(line); } line.style.left = best * pps() + 'px'; }
+  else if (line) line.remove();
+  return best === null ? t : best;
+}
+function snapStart(start, len, id) { const a = snapT(start, id); if (a !== start) return a; const b = snapT(start + len, id); return b !== start + len ? b - len : start; }
+function hideSnap() { const l = $('snapLine'); if (l) l.remove(); }
 function tlDrag(e, el, kind) {
   e.stopPropagation();
   const id = el.dataset.cap || el.dataset.mc;
@@ -1517,27 +1660,27 @@ function tlDrag(e, el, kind) {
   el.onpointermove = (ev) => {
     const dt = (ev.clientX - x0) / p;
     if (kind === 'cap') {
-      if (mode === 'm') { const len = snap.e - snap.s; ref.start = Math.max(0, snap.s + dt); ref.end = ref.start + len; }
-      else if (mode === 'l') ref.start = clamp(snap.s + dt, 0, snap.e - .3);
-      else ref.end = Math.max(snap.s + .3, snap.e + dt);
+      if (mode === 'm') { const len = snap.e - snap.s; ref.start = Math.max(0, snapStart(snap.s + dt, len, id)); ref.end = ref.start + len; }
+      else if (mode === 'l') ref.start = clamp(snapT(snap.s + dt, id), 0, snap.e - .3);
+      else ref.end = Math.max(snap.s + .3, snapT(snap.e + dt, id));
       el.style.left = ref.start * p + 'px'; el.style.width = Math.max((ref.end - ref.start) * p, 8) + 'px';
     } else {
       if (mode === 'm') {
-        ref.start = Math.max(0, snap.s + dt);
+        ref.start = Math.max(0, snapStart(snap.s + dt, snap.o - snap.i, id));
         const lanes = [...document.querySelectorAll('#tl .lane[data-lane]')];
         let L = null;
         for (const ln of lanes) { const r = ln.getBoundingClientRect(); if (ev.clientY >= r.top && ev.clientY < r.bottom) L = +ln.dataset.lane; }
         if (L === null && lanes.length) L = ev.clientY < lanes[0].getBoundingClientRect().top ? +lanes[0].dataset.lane : +lanes[lanes.length - 1].dataset.lane;
         if (L !== null) { if (L === 0 && tl.music.mode !== 'manual') L = 1; ref.lane = L; lanes.forEach(ln => ln.classList.toggle('drop', +ln.dataset.lane === L)); }
       }
-      else if (mode === 'l') { const d = clamp(dt, -snap.i, snap.o - snap.i - .5); ref.src_in = snap.i + d; ref.start = Math.max(0, snap.s + d); }
-      else ref.src_out = Math.max(snap.i + .5, snap.o + dt);
+      else if (mode === 'l') { const d = clamp(snapT(snap.s + dt, id) - snap.s, -snap.i, snap.o - snap.i - .5); ref.src_in = snap.i + d; ref.start = Math.max(0, snap.s + d); }
+      else ref.src_out = Math.max(snap.i + .5, snap.i + snapT(snap.s + (snap.o - snap.i) + dt, id) - snap.s);
       el.style.left = ref.start * p + 'px'; el.style.width = Math.max((ref.src_out - ref.src_in) * p - 2, 8) + 'px';
     }
     ref.start = Math.round(ref.start * 100) / 100;
     fillCapFields(ref);
   };
-  el.onpointerup = () => { el.onpointermove = el.onpointerup = null; dragging = false; document.querySelectorAll('#tl .lane.drop').forEach(l => l.classList.remove('drop')); saveSoon(); };
+  el.onpointerup = () => { el.onpointermove = el.onpointerup = null; dragging = false; hideSnap(); document.querySelectorAll('#tl .lane.drop').forEach(l => l.classList.remove('drop')); saveSoon(); };
 }
 // Move a clip (drop it between two others) or drag its edges to change the length; later clips follow.
 function clipDrag(e, el) {

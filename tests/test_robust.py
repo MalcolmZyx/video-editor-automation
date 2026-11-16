@@ -144,3 +144,18 @@ def test_a_finished_year_video_does_not_turn_the_year_folder_into_a_month(year):
     (year / "year.mp4").write_bytes(b"not a real video")
     app = App(year)
     assert not app.single and set(app.months) == {"01-Jan", "02-Feb"}
+
+
+def test_nonsense_numbers_from_the_editor_are_cleaned_up(year):
+    c = Client(start(year))
+    tl = c.json("/api/timeline?m=01-Jan")
+    a, b, cap = tl["items"][0], tl["items"][1], None
+    a["duration_override"], a["fade_in"], a["audio_volume"] = -4, "abc", 99
+    b["duration_override"], b["transition_out"] = 0, -2
+    tl["captions"] = [{"id": "c1", "text": "hi", "start": -5, "end": -9}]
+    out = c.post("/api/timeline?m=01-Jan", tl)
+    a, b = out["items"][0], out["items"][1]
+    assert a["duration_override"] == 0.2 and a["fade_in"] is None and a["audio_volume"] == 4
+    assert b["duration_override"] == 0.2 and b["transition_out"] == 0
+    cap = out["captions"][0]
+    assert cap["start"] == 0 and cap["end"] >= 0.1

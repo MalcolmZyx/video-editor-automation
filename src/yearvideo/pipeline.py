@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import shutil
 import time
@@ -377,9 +378,37 @@ def _fill_defaults(tl: dict) -> None:
             c.setdefault(k, v)
 
 
+def _num(v, lo: float, hi: float, default=None):
+    """A number inside [lo, hi]; anything else (text, NaN, empty) becomes `default`."""
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return default
+    if math.isnan(x):
+        return default
+    return min(max(x, lo), hi)
+
+
+def sanitize(tl: dict) -> None:
+    """Typos in the editor (0, negative, letters, absurd values) must never reach the planner or ffmpeg."""
+    for i in tl["items"]:
+        i["duration_override"] = _num(i.get("duration_override"), 0.2, 3600) if i.get("duration_override") not in (None, "") else None
+        for k in ("fade_in", "fade_out", "transition_out"):
+            if i.get(k) not in (None, ""):
+                i[k] = _num(i[k], 0, 10)
+            else:
+                i[k] = None
+        i["audio_volume"] = _num(i.get("audio_volume"), 0, 4, 1.0)
+        i["src_in"] = _num(i.get("src_in"), 0, 86400, 0.0)
+    for c in tl.get("captions", []):
+        c["start"] = _num(c.get("start"), 0, 86400, 0.0)
+        c["end"] = max(_num(c.get("end"), 0, 86400, c["start"] + 3), c["start"] + 0.1)
+
+
 def replan(tl: dict) -> dict:
     """Recompute durations/audio from the current keep flags, overrides, limits and music mode."""
     _fill_defaults(tl)
+    sanitize(tl)
     items = [
         Item(i["id"], i["kind"], i["source_duration"], i["duration_override"], i["keep"])
         for i in tl["items"]

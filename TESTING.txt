@@ -84,6 +84,12 @@ STEP 4 - What to try in the editor, in this order
  5f. Safety: if the server stops or a save fails, a red notice appears, edits stay in the page (and a
     draft in the browser), saving retries by itself and offers to restore the draft after a restart.
     Stress check (slow, by hand): python tools/stress_year.py 150 3
+ 5g. Notifications: the bell in the header keeps every message (errors, finished renders, sent back...)
+    until you delete it (one by one or "Delete all"); the red number counts unread ones.
+ 5h. Shortcuts (press ? in the editor for the list): Space, arrows (1 s, Shift 5 s), Up/Down jump to the
+    previous/next cut, Home/End, S split, Delete, Ctrl+Z / Ctrl+Y, Ctrl+S, + - 0 zoom, Ctrl+wheel zoom,
+    drag on the ruler to scrub, double-click a video clip to trim, "Snap" makes captions and songs
+    snap to the playhead and clip edges. Lengths below 0.2 s are corrected automatically.
  6. Timeline editing: drag clips on the Clips row to reorder, drag block edges to change length,
     press S to split at the playhead, Backspace to delete, Ctrl+Z to undo.
  7. Month settings > Lengths > tick "Manual timing": lengths stay exactly as you set them, the month
