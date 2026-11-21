@@ -113,6 +113,7 @@ class Review:
                 raise StaleError(
                     "stale: this month was changed in another window or tab. Reload the page to see the latest."
                 )
+            tl.pop("restored_from_backup", None)  # a one-time notice for the browser, never stored in the file
             tl = replan(tl)
             tl["rev"] = on_disk + 1
             save_timeline(tl, self.path)

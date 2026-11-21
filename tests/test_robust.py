@@ -159,3 +159,14 @@ def test_nonsense_numbers_from_the_editor_are_cleaned_up(year):
     assert b["duration_override"] == 0.2 and b["transition_out"] == 0
     cap = out["captions"][0]
     assert cap["start"] == 0 and cap["end"] >= 0.1
+
+
+def test_the_restored_from_backup_notice_is_shown_once_not_saved_forever(year):
+    c = Client(start(year))
+    c.post("/api/timeline?m=01-Jan", c.json("/api/timeline?m=01-Jan"))  # makes a .bak
+    (year / "01-Jan" / "timeline.json").write_text("{ broken", encoding="utf-8")
+    tl = c.json("/api/timeline?m=01-Jan")
+    assert tl["restored_from_backup"]
+    c.post("/api/timeline?m=01-Jan", tl)  # the browser saves what it was given
+    assert "restored_from_backup" not in json.loads((year / "01-Jan" / "timeline.json").read_text(encoding="utf-8"))
+    assert "restored_from_backup" not in c.json("/api/timeline?m=01-Jan")
